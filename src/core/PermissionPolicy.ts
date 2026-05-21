@@ -87,8 +87,16 @@ export class PermissionPolicy {
       }
     }
 
-    if (action.externalNetwork && this.contract.riskPolicy.externalNetwork === "forbidden") {
-      violations.push("external network access is forbidden");
+    if (action.externalNetwork) {
+      if (this.contract.riskPolicy.externalNetwork === "forbidden") {
+        violations.push("external network access is forbidden");
+      } else if (
+        this.contract.riskPolicy.externalNetwork === "restricted" &&
+        !action.approvalGranted
+      ) {
+        requiresHuman = true;
+        violations.push("restricted external network access requires explicit approval");
+      }
     }
 
     if (action.secretAccess) {

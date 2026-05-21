@@ -54,4 +54,20 @@ export class ShellAdapter {
       );
     });
   }
+
+  async runLine(request: Omit<ShellRunRequest, "command" | "args"> & { commandLine: string }): Promise<ShellRunResult> {
+    const shellCommand =
+      process.platform === "win32"
+        ? { command: "cmd.exe", args: ["/d", "/s", "/c", request.commandLine] }
+        : { command: "sh", args: ["-c", request.commandLine] };
+
+    return this.run({
+      command: shellCommand.command,
+      args: shellCommand.args,
+      cwd: request.cwd,
+      operation: request.operation,
+      artifacts: request.artifacts,
+      externalNetwork: request.externalNetwork
+    });
+  }
 }

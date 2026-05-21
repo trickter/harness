@@ -15,6 +15,7 @@ export * from "./core/RecoveryPolicy.js";
 export * from "./core/RunLedger.js";
 export * from "./core/StateMachine.js";
 export * from "./core/StopPolicy.js";
+export * from "./core/VerificationRunner.js";
 export * from "./skills/SkillContext.js";
 export * from "./skills/SkillRegistry.js";
 export * from "./skills/SkillRunner.js";

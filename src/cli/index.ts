@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 
 import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
+import { ShellAdapter } from "../adapters/ShellAdapter.js";
 import { createGoalContractTemplate, loadGoalContract } from "../core/GoalContract.js";
+import { LoopController } from "../core/LoopController.js";
 import { PermissionPolicy } from "../core/PermissionPolicy.js";
 import { JsonlRunLedger, type RunLedgerEntry } from "../core/RunLedger.js";
+import { VerificationRunner } from "../core/VerificationRunner.js";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
@@ -47,6 +51,7 @@ function hasFlag(args: string[], flag: string): boolean {
 function printUsage(): void {
   console.log(`Usage:
   harness init-contract --name <name> --objective <objective> [--id <id>] [--out <file>]
+  harness run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
   harness ledger inspect <ledger.jsonl>`);
 }
@@ -84,6 +89,41 @@ async function dryPolicy(args: string[]): Promise<void> {
 
   if (!decision.allowed) {
     process.exitCode = 2;
+  }
+}
+
+async function runContract(args: string[]): Promise<void> {
+  const contract = await loadGoalContract(requireFlag(args, "--contract"));
+  const ledgerPath = flagValue(args, "--ledger") ?? join(".harness", "runs", contract.goal.id, "ledger.jsonl");
+  const ledger = new JsonlRunLedger(ledgerPath);
+  const permissions = new PermissionPolicy(contract);
+  const loop = new LoopController(contract, ledger, { permissions });
+  const shell = new ShellAdapter(permissions);
+  const runner = new VerificationRunner(contract, loop, shell);
+  const result = await runner.run({ cwd: flagValue(args, "--cwd") });
+  const failedCommands = result.commands.filter((command) => command.exitCode !== 0);
+
+  console.log(
+    JSON.stringify(
+      {
+        goalId: contract.goal.id,
+        ledger: ledgerPath,
+        verificationResult: result.verificationResult,
+        nextPhase: result.turn.transition.to,
+        passedCommands: result.commands.length - failedCommands.length,
+        failedCommands: failedCommands.map((command) => ({
+          command: command.command,
+          operation: command.operation,
+          exitCode: command.exitCode
+        }))
+      },
+      null,
+      2
+    )
+  );
+
+  if (result.verificationResult !== "pass") {
+    process.exitCode = 1;
   }
 }
 
@@ -130,6 +170,11 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "run" && subcommand === "--dry-policy") {
     await dryPolicy(rest);
+    return;
+  }
+
+  if (command === "run") {
+    await runContract([subcommand, ...rest].filter((value): value is string => Boolean(value)));
     return;
   }
 

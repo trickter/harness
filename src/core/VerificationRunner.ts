@@ -2,10 +2,12 @@ import type { ShellAdapter, ShellRunResult } from "../adapters/ShellAdapter.js";
 import type { GoalContract } from "./GoalContract.js";
 import { LoopController, type LoopTurnResult } from "./LoopController.js";
 import type { VerificationResult } from "./RunLedger.js";
+import { VerificationParser, type ParsedVerificationOutput } from "./VerificationParser.js";
 
 export interface VerificationCommandResult extends ShellRunResult {
   command: string;
   operation: string;
+  parsed: ParsedVerificationOutput;
 }
 
 export interface VerificationRunResult {
@@ -39,7 +41,7 @@ function errorSignatureFor(results: VerificationCommandResult[]): string | undef
     return undefined;
   }
 
-  return `${failed.operation}:${failed.command}:exit-${failed.exitCode}`;
+  return failed.parsed.errorSignature ?? `${failed.operation}:${failed.command}:exit-${failed.exitCode}`;
 }
 
 function verificationResultFor(results: VerificationCommandResult[]): VerificationResult {
@@ -53,11 +55,13 @@ function verificationResultFor(results: VerificationCommandResult[]): Verificati
 export class VerificationRunner {
   readonly contract: GoalContract;
   readonly loop: LoopController;
+  readonly parser: VerificationParser;
   readonly shell: ShellAdapter;
 
-  constructor(contract: GoalContract, loop: LoopController, shell: ShellAdapter) {
+  constructor(contract: GoalContract, loop: LoopController, shell: ShellAdapter, parser = new VerificationParser()) {
     this.contract = contract;
     this.loop = loop;
+    this.parser = parser;
     this.shell = shell;
   }
 
@@ -71,13 +75,15 @@ export class VerificationRunner {
         cwd: options.cwd,
         operation
       });
+      const parsed = this.parser.parse({ command, operation, ...result });
 
-      commands.push({ command, operation, ...result });
+      commands.push({ command, operation, parsed, ...result });
     }
 
     const verificationResult = verificationResultFor(commands);
-    const failedCount = commands.filter((command) => command.exitCode !== 0).length;
-    const passedCount = commands.length - failedCount;
+    const failedCommandCount = commands.filter((command) => command.exitCode !== 0).length;
+    const passedCount = commands.length - failedCommandCount;
+    const failureCount = commands.reduce((count, command) => count + command.parsed.failureCount, 0);
     const turn = await this.loop.recordTurn({
       phase: "VERIFY",
       action: commands.length
@@ -88,10 +94,13 @@ export class VerificationRunner {
       verificationResult,
       errorSignature: errorSignatureFor(commands),
       newInformation: commands.length
-        ? [`${passedCount} verification command(s) passed; ${failedCount} failed.`]
+        ? [
+            `${passedCount} verification command(s) passed; ${failedCommandCount} failed.`,
+            ...commands.filter((command) => command.parsed.failureCount > 0).map((command) => command.parsed.summary)
+          ]
         : ["Goal contract has no verification commands."],
       objectiveDelta: verificationResult === "pass" ? 1 : 0,
-      failureCountDelta: failedCount,
+      failureCountDelta: failureCount,
       confidenceDelta: verificationResult === "pass" ? 1 : 0,
       successCriteriaMet: verificationResult === "pass"
     });

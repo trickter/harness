@@ -114,7 +114,9 @@ async function runContract(args: string[]): Promise<void> {
         failedCommands: failedCommands.map((command) => ({
           command: command.command,
           operation: command.operation,
-          exitCode: command.exitCode
+          exitCode: command.exitCode,
+          failureCount: command.parsed.failureCount,
+          errorSignature: command.parsed.errorSignature
         }))
       },
       null,

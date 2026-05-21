@@ -70,7 +70,9 @@ test("verification runner records a repair turn when a command fails", async () 
 
   assert.equal(result.verificationResult, "fail");
   assert.equal(result.commands[0]?.exitCode, 7);
+  assert.equal(result.commands[0]?.parsed.failureCount, 1);
   assert.equal(result.turn.transition.to, "REPAIR");
+  assert.equal(entries[0]?.metrics.failureCountDelta, 1);
   assert.equal(entries[0]?.verificationResult, "fail");
   assert.equal(entries[0]?.nextPhase, "REPAIR");
   assert.match(entries[0]?.errorSignature ?? "", /exit-7/);

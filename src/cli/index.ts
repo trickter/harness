@@ -25,7 +25,8 @@ import {
   writeRunStatus
 } from "../core/RunDirectory.js";
 import { JsonlRunLedger } from "../core/RunLedger.js";
-import { auditGitScope, scanGitChangedArtifacts } from "../core/ScopeAudit.js";
+import { captureHarnessSnapshot, changedArtifactsSinceSnapshot } from "../core/RunSnapshot.js";
+import { auditChangedArtifacts, auditGitScope, scanGitChangedArtifacts } from "../core/ScopeAudit.js";
 import { VerificationRunner } from "../core/VerificationRunner.js";
 import { PHASES, type Phase } from "../core/StateMachine.js";
 import { VERIFICATION_RESULTS, type VerificationResult } from "../core/RunLedger.js";
@@ -97,11 +98,12 @@ function requireEnum<T extends readonly string[]>(args: string[], flag: string, 
 function printUsage(): void {
   console.log(`Usage:
   harness init-contract --name <name> --objective <objective> [--id <id>] [--out <file>]
-  harness start --contract <file> [--run <dir>]
+  harness start --contract <file> [--run <dir>] [--cwd <dir>]
   harness status --run <dir>
   harness resume --run <dir>
+  harness snapshot --run <dir> --name <name> [--cwd <dir>]
   harness diff --run <dir> [--cwd <dir>]
-  harness audit --run <dir> [--cwd <dir>]
+  harness audit --run <dir> [--cwd <dir>] [--since <snapshot>]
   harness turn --run <dir> --phase <phase> --action <text> --verification <result> [--changed <path>] [--command <cmd>] [--info <text>] [--error-signature <sig>]
   harness verify --run <dir> [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
@@ -357,6 +359,12 @@ async function startRun(args: string[]): Promise<void> {
     contractPath: requireFlag(args, "--contract"),
     runDir: flagValue(args, "--run")
   });
+  const cwd = flagValue(args, "--cwd") ?? process.cwd();
+  const baseline = await captureHarnessSnapshot({
+    paths: result.paths,
+    cwd,
+    name: "baseline"
+  });
 
   console.log(
     JSON.stringify(
@@ -368,6 +376,8 @@ async function startRun(args: string[]): Promise<void> {
         verificationDir: result.paths.verificationDir,
         reportsDir: result.paths.reportsDir,
         snapshotsDir: result.paths.snapshotsDir,
+        baselineSnapshot: "baseline",
+        baselineArtifacts: baseline.artifacts.length,
         phase: result.status.phase
       },
       null,
@@ -388,6 +398,31 @@ async function resumeRun(args: string[]): Promise<void> {
   const resume = await resumeHarnessRun(runPaths(requireFlag(args, "--run")));
 
   console.log(JSON.stringify(resume, null, 2));
+}
+
+async function snapshotRun(args: string[]): Promise<void> {
+  const paths = runPaths(requireFlag(args, "--run"));
+  await ensureRunDirectories(paths);
+
+  const snapshot = await captureHarnessSnapshot({
+    paths,
+    cwd: flagValue(args, "--cwd") ?? process.cwd(),
+    name: requireFlag(args, "--name")
+  });
+
+  console.log(
+    JSON.stringify(
+      {
+        runDir: paths.runDir,
+        snapshot: snapshot.name,
+        path: join(paths.snapshotsDir, `${snapshot.name}.json`),
+        cwd: snapshot.cwd,
+        artifacts: snapshot.artifacts.length
+      },
+      null,
+      2
+    )
+  );
 }
 
 async function diffRun(args: string[]): Promise<void> {
@@ -414,24 +449,32 @@ async function auditRun(args: string[]): Promise<void> {
 
   const cwd = flagValue(args, "--cwd") ?? process.cwd();
   const contract = await loadGoalContract(paths.contractPath);
-  const audit = await auditGitScope({ contract, cwd });
+  const since = flagValue(args, "--since");
+  const finalAudit = since
+    ? auditChangedArtifacts({
+        contract,
+        cwd,
+        changedArtifacts: await changedArtifactsSinceSnapshot({ paths, cwd, since })
+      })
+    : await auditGitScope({ contract, cwd });
   const reportPath = join(paths.reportsDir, "scope-audit.json");
 
-  await writeFile(reportPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+  await writeFile(reportPath, `${JSON.stringify({ since, ...finalAudit }, null, 2)}\n`, "utf8");
 
   console.log(
     JSON.stringify(
       {
         runDir: paths.runDir,
         report: reportPath,
-        ...audit
+        since,
+        ...finalAudit
       },
       null,
       2
     )
   );
 
-  if (!audit.allowed) {
+  if (!finalAudit.allowed) {
     process.exitCode = 1;
   }
 }
@@ -486,6 +529,11 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "resume") {
     await resumeRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "snapshot") {
+    await snapshotRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
     return;
   }
 

@@ -49,6 +49,7 @@ test("run directory start, status, resume, turn, and verify use canonical paths"
   const contractPath = await createContract(directory);
   const runDir = join(directory, ".harness", "runs", "run-dir");
 
+  await execFileAsync("git", ["init"], { cwd: directory });
   await writeFile(join(directory, "pass.cjs"), "process.exit(0);", "utf8");
 
   const start = JSON.parse(
@@ -62,11 +63,20 @@ test("run directory start, status, resume, turn, and verify use canonical paths"
         runDir
       ])
     ).stdout
-  ) as { phase: string; contract: string; ledger: string; status: string };
+  ) as { phase: string; contract: string; ledger: string; status: string; baselineSnapshot: string };
 
   assert.equal(start.phase, "DIVERGE_PLAN");
   assert.equal(start.contract, join(runDir, "contract.yaml"));
   assert.equal(start.ledger, join(runDir, "ledger.jsonl"));
+  assert.equal(start.baselineSnapshot, "baseline");
+
+  const snapshot = JSON.parse(
+    (await execFileAsync(process.execPath, [cli(), "snapshot", "--run", runDir, "--name", "latest", "--cwd", directory]))
+      .stdout
+  ) as { snapshot: string; path: string };
+
+  assert.equal(snapshot.snapshot, "latest");
+  assert.equal(snapshot.path, join(runDir, "snapshots", "latest.json"));
 
   const turn = JSON.parse(
     (

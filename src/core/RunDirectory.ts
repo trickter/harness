@@ -130,7 +130,7 @@ function commandForPhase(status: HarnessRunStatus): HarnessRunResume {
       status,
       recommendedNextStep: "Execute one bounded action, audit real changes, then record changed artifacts.",
       commands: [
-        `harness audit ${base}`,
+        `harness audit ${base} --since baseline`,
         `harness turn ${base} --phase CONVERGE_EXECUTE --action "..." --verification skipped --changed <path> --info "..." --action-completed --objective-delta 0.1`
       ]
     };
@@ -149,7 +149,7 @@ function commandForPhase(status: HarnessRunStatus): HarnessRunResume {
       status,
       recommendedNextStep: "Repair only the current verification failure, audit real changes, then record the repair.",
       commands: [
-        `harness audit ${base}`,
+        `harness audit ${base} --since baseline`,
         `harness turn ${base} --phase REPAIR --action "Repair current verification failure" --verification skipped --changed <path> --info "..." --repair-completed --objective-delta 0.1`
       ]
     };

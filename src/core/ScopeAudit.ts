@@ -1,9 +1,16 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { GoalContract } from "./GoalContract.js";
 
 export interface GitChangedArtifact {
   path: string;
   status: string;
+}
+
+export interface GitArtifactSnapshot extends GitChangedArtifact {
+  fingerprint: string;
 }
 
 export interface ScopeAuditResult {
@@ -61,6 +68,25 @@ function runGit(args: string[], cwd: string): Promise<string> {
   });
 }
 
+function hash(value: string | Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function pathFingerprint(cwd: string, artifact: GitChangedArtifact): Promise<string> {
+  const trackedDiff = await runGit(["diff", "--binary", "--", artifact.path], cwd);
+  const stagedDiff = await runGit(["diff", "--cached", "--binary", "--", artifact.path], cwd);
+
+  if (trackedDiff || stagedDiff) {
+    return hash(`${artifact.status}\n${trackedDiff}\n${stagedDiff}`);
+  }
+
+  try {
+    return hash(await readFile(join(cwd, artifact.path)));
+  } catch {
+    return hash(`${artifact.status}:${artifact.path}`);
+  }
+}
+
 function parsePorcelainLine(line: string): GitChangedArtifact | undefined {
   if (!line.trim()) {
     return undefined;
@@ -89,6 +115,28 @@ export async function scanGitChangedArtifacts(cwd: string): Promise<GitChangedAr
   const output = await runGit(["status", "--porcelain", "--untracked-files=all"], cwd);
 
   return parseGitStatusPorcelain(output);
+}
+
+export async function captureGitArtifactSnapshots(cwd: string): Promise<GitArtifactSnapshot[]> {
+  const artifacts = await scanGitChangedArtifacts(cwd);
+
+  return Promise.all(
+    artifacts.map(async (artifact) => ({
+      ...artifact,
+      fingerprint: await pathFingerprint(cwd, artifact)
+    }))
+  );
+}
+
+export function changedSinceBaseline(input: {
+  current: GitArtifactSnapshot[];
+  baseline: GitArtifactSnapshot[];
+}): GitChangedArtifact[] {
+  const baselineByPath = new Map(input.baseline.map((artifact) => [artifact.path, artifact]));
+
+  return input.current
+    .filter((artifact) => baselineByPath.get(artifact.path)?.fingerprint !== artifact.fingerprint)
+    .map(({ path, status }) => ({ path, status }));
 }
 
 export function auditChangedArtifacts(input: {

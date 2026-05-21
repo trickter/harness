@@ -31,6 +31,7 @@ test("CLI diff and audit inspect real git changes against contract scope", async
   const contractPath = join(directory, "goal.yaml");
 
   await mkdir(join(repo, "src"), { recursive: true });
+  await mkdir(join(repo, "docs"), { recursive: true });
   await mkdir(join(repo, "secrets"), { recursive: true });
   await execFileAsync("git", ["init"], { cwd: repo });
   await writeFile(
@@ -57,7 +58,17 @@ budget:
 `,
     "utf8"
   );
-  await execFileAsync(process.execPath, [cli(), "start", "--contract", contractPath, "--run", runDir]);
+  await writeFile(join(repo, "docs", "preexisting.md"), "dirty before run\n", "utf8");
+  await execFileAsync(process.execPath, [
+    cli(),
+    "start",
+    "--contract",
+    contractPath,
+    "--run",
+    runDir,
+    "--cwd",
+    repo
+  ]);
   await writeFile(join(repo, "src", "ok.ts"), "export const ok = true;\n", "utf8");
   await writeFile(join(repo, "secrets", "key.txt"), "secret\n", "utf8");
 
@@ -67,7 +78,7 @@ budget:
 
   assert.deepEqual(
     diff.changedArtifacts.map((artifact) => artifact.path).sort(),
-    ["secrets/key.txt", "src/ok.ts"]
+    ["docs/preexisting.md", "secrets/key.txt", "src/ok.ts"]
   );
 
   const auditOutput = await execAllowFailure(process.execPath, [
@@ -87,6 +98,25 @@ budget:
 
   assert.equal(audit.allowed, false);
   assert.deepEqual(audit.forbiddenMatches, ["secrets/key.txt"]);
-  assert.deepEqual(audit.outOfScopeArtifacts, ["secrets/key.txt"]);
+  assert.deepEqual(audit.outOfScopeArtifacts, ["docs/preexisting.md", "secrets/key.txt"]);
   assert.match(await readFile(audit.report, "utf8"), /secrets\/key\.txt/);
+
+  const baselineAuditOutput = await execAllowFailure(process.execPath, [
+    cli(),
+    "audit",
+    "--run",
+    runDir,
+    "--cwd",
+    repo,
+    "--since",
+    "baseline"
+  ]);
+  const baselineAudit = JSON.parse(baselineAuditOutput.stdout) as {
+    changedArtifacts: Array<{ path: string }>;
+  };
+
+  assert.deepEqual(
+    baselineAudit.changedArtifacts.map((artifact) => artifact.path).sort(),
+    ["secrets/key.txt", "src/ok.ts"]
+  );
 });

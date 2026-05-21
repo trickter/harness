@@ -4,6 +4,7 @@ export * from "./adapters/GitAdapter.js";
 export * from "./adapters/ShellAdapter.js";
 export * from "./agents/Agent.js";
 export * from "./agents/DaemonAgent.js";
+export * from "./agents/DocumentationDaemonRunner.js";
 export * from "./artifacts/Artifact.js";
 export * from "./artifacts/ArtifactGraph.js";
 export * from "./artifacts/ArtifactScanner.js";

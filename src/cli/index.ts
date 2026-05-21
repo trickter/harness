@@ -4,6 +4,8 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import { ShellAdapter } from "../adapters/ShellAdapter.js";
+import { documentationConsistencyDaemon } from "../agents/DaemonAgent.js";
+import { DocumentationDaemonRunner } from "../agents/DocumentationDaemonRunner.js";
 import { createGoalContractTemplate, loadGoalContract } from "../core/GoalContract.js";
 import { LoopController } from "../core/LoopController.js";
 import { PermissionPolicy } from "../core/PermissionPolicy.js";
@@ -53,6 +55,7 @@ function printUsage(): void {
   harness init-contract --name <name> --objective <objective> [--id <id>] [--out <file>]
   harness run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
+  harness daemon documentation --contract <file> --changed <path> [--changed <path>...] [--ledger <ledger.jsonl>]
   harness ledger inspect <ledger.jsonl>`);
 }
 
@@ -129,6 +132,38 @@ async function runContract(args: string[]): Promise<void> {
   }
 }
 
+async function runDocumentationDaemon(args: string[]): Promise<void> {
+  const contract = await loadGoalContract(requireFlag(args, "--contract"));
+  const changedArtifacts = flagValues(args, "--changed");
+
+  if (changedArtifacts.length === 0) {
+    throw new Error("documentation daemon requires at least one --changed path");
+  }
+
+  const ledgerPath =
+    flagValue(args, "--ledger") ?? join(".harness", "runs", contract.goal.id, "documentation-daemon.ledger.jsonl");
+  const permissions = new PermissionPolicy(contract);
+  const loop = new LoopController(contract, new JsonlRunLedger(ledgerPath), { permissions });
+  const runner = new DocumentationDaemonRunner(documentationConsistencyDaemon, loop);
+  const result = await runner.run({ changedArtifacts });
+
+  console.log(
+    JSON.stringify(
+      {
+        ledger: ledgerPath,
+        nextPhase: result.turn.transition.to,
+        ...result.report
+      },
+      null,
+      2
+    )
+  );
+
+  if (result.report.needsDocumentationReview) {
+    process.exitCode = 1;
+  }
+}
+
 function countBy(entries: RunLedgerEntry[], key: "phase" | "verificationResult"): Record<string, number> {
   return entries.reduce<Record<string, number>>((counts, entry) => {
     const value = entry[key];
@@ -177,6 +212,11 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "run") {
     await runContract([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "daemon" && subcommand === "documentation") {
+    await runDocumentationDaemon(rest);
     return;
   }
 

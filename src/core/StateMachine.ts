@@ -41,6 +41,19 @@ function toTransition(from: Phase, to: Phase, reason: string, metrics: ProgressM
   return { from, to, reason, metrics };
 }
 
+function enterEscape(
+  from: Phase,
+  contract: GoalContract,
+  signals: TransitionSignals,
+  reason: string
+): StateTransition {
+  if (signals.escapeRounds >= contract.budget.maxEscapeRounds) {
+    return toTransition(from, "ABORT", "escape round budget reached", signals.metrics);
+  }
+
+  return toTransition(from, "ESCAPE_DIVERGE", reason, signals.metrics);
+}
+
 export class StateMachine {
   transition(from: Phase, contract: GoalContract, signals: TransitionSignals): StateTransition {
     if (from === "FINISH" || from === "ABORT") {
@@ -73,7 +86,7 @@ export class StateMachine {
           signals.metrics.repeatedErrorCount >= contract.budget.maxSameError ||
           signals.metrics.noProgressCount >= contract.budget.maxNoProgress
         ) {
-          return toTransition(from, "ESCAPE_DIVERGE", "repeated failure or no progress", signals.metrics);
+          return enterEscape(from, contract, signals, "repeated failure or no progress");
         }
 
         if (signals.verificationResult === "fail" || signals.verificationResult === "partial") {
@@ -83,17 +96,13 @@ export class StateMachine {
         return toTransition(from, "CONVERGE_EXECUTE", "verification did not finish the contract", signals.metrics);
       case "REPAIR":
         if (signals.metrics.repeatedErrorCount >= contract.budget.maxSameError) {
-          return toTransition(from, "ESCAPE_DIVERGE", "repair repeated the same failure", signals.metrics);
+          return enterEscape(from, contract, signals, "repair repeated the same failure");
         }
 
         return signals.repairCompleted
           ? toTransition(from, "VERIFY", "repair completed", signals.metrics)
           : toTransition(from, from, "repair is still pending", signals.metrics);
       case "ESCAPE_DIVERGE":
-        if (signals.escapeRounds >= contract.budget.maxEscapeRounds) {
-          return toTransition(from, "ABORT", "escape round budget reached", signals.metrics);
-        }
-
         return signals.alternativeStrategySelected
           ? toTransition(from, "CONVERGE_EXECUTE", "alternative strategy selected", signals.metrics)
           : toTransition(from, from, "waiting for alternative strategy", signals.metrics);

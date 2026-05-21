@@ -22,6 +22,7 @@ export * from "./core/ProgressEvaluator.js";
 export * from "./core/RecoveryPolicy.js";
 export * from "./core/RunDirectory.js";
 export * from "./core/RunLedger.js";
+export * from "./core/ScopeAudit.js";
 export * from "./core/StateMachine.js";
 export * from "./core/StopPolicy.js";
 export * from "./core/VerificationParser.js";

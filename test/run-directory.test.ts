@@ -103,7 +103,8 @@ test("run directory start, status, resume, turn, and verify use canonical paths"
   ) as { recommendedNextStep: string; commands: string[] };
 
   assert.match(resume.recommendedNextStep, /Execute one bounded action/);
-  assert.match(resume.commands[0] ?? "", /harness turn/);
+  assert.match(resume.commands[0] ?? "", /harness audit/);
+  assert.match(resume.commands[1] ?? "", /harness turn/);
 
   const verify = JSON.parse(
     (await execFileAsync(process.execPath, [cli(), "verify", "--run", runDir, "--cwd", directory])).stdout

@@ -25,6 +25,7 @@ import {
   writeRunStatus
 } from "../core/RunDirectory.js";
 import { JsonlRunLedger } from "../core/RunLedger.js";
+import { auditGitScope, scanGitChangedArtifacts } from "../core/ScopeAudit.js";
 import { VerificationRunner } from "../core/VerificationRunner.js";
 import { PHASES, type Phase } from "../core/StateMachine.js";
 import { VERIFICATION_RESULTS, type VerificationResult } from "../core/RunLedger.js";
@@ -99,6 +100,8 @@ function printUsage(): void {
   harness start --contract <file> [--run <dir>]
   harness status --run <dir>
   harness resume --run <dir>
+  harness diff --run <dir> [--cwd <dir>]
+  harness audit --run <dir> [--cwd <dir>]
   harness turn --run <dir> --phase <phase> --action <text> --verification <result> [--changed <path>] [--command <cmd>] [--info <text>] [--error-signature <sig>]
   harness verify --run <dir> [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
@@ -387,6 +390,52 @@ async function resumeRun(args: string[]): Promise<void> {
   console.log(JSON.stringify(resume, null, 2));
 }
 
+async function diffRun(args: string[]): Promise<void> {
+  const runDir = requireFlag(args, "--run");
+  const cwd = flagValue(args, "--cwd") ?? process.cwd();
+  const changedArtifacts = await scanGitChangedArtifacts(cwd);
+
+  console.log(
+    JSON.stringify(
+      {
+        runDir: runPaths(runDir).runDir,
+        cwd,
+        changedArtifacts
+      },
+      null,
+      2
+    )
+  );
+}
+
+async function auditRun(args: string[]): Promise<void> {
+  const paths = runPaths(requireFlag(args, "--run"));
+  await ensureRunDirectories(paths);
+
+  const cwd = flagValue(args, "--cwd") ?? process.cwd();
+  const contract = await loadGoalContract(paths.contractPath);
+  const audit = await auditGitScope({ contract, cwd });
+  const reportPath = join(paths.reportsDir, "scope-audit.json");
+
+  await writeFile(reportPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+
+  console.log(
+    JSON.stringify(
+      {
+        runDir: paths.runDir,
+        report: reportPath,
+        ...audit
+      },
+      null,
+      2
+    )
+  );
+
+  if (!audit.allowed) {
+    process.exitCode = 1;
+  }
+}
+
 async function inspectLedger(path: string): Promise<void> {
   const entries = await new JsonlRunLedger(path).readAll();
   const latest = entries.at(-1);
@@ -437,6 +486,16 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "resume") {
     await resumeRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "diff") {
+    await diffRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "audit") {
+    await auditRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
     return;
   }
 

@@ -23,7 +23,23 @@ function nonEmptyLines(value: string): string[] {
 }
 
 function normalizeSignaturePart(value: string): string {
-  return value.replaceAll("\\", "/").replace(/\s+/g, " ").slice(0, 160);
+  return normalizeErrorSignature(value).slice(0, 160);
+}
+
+export function normalizeErrorSignature(value: string): string {
+  return value
+    .replace(/\u001b\[[0-9;]*m/gu, "")
+    .replaceAll("\\", "/")
+    .replace(/file:\/\/\/?/giu, "")
+    .replace(/\((\d+),(\d+)\)/gu, "(<loc>)")
+    .replace(/:(\d+):(\d+)(?=[:\s)]|$)/gu, ":<loc>")
+    .replace(/\bline\s+\d+\b/giu, "line <n>")
+    .replace(/\b\d+(?:\.\d+)?\s*(?:ms|s)\b/giu, "<duration>")
+    .replace(/\b0x[0-9a-f]+\b/giu, "<hex>")
+    .replace(/\b[0-9a-f]{12,}\b/giu, "<id>")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 240);
 }
 
 function parseSummaryFailureCount(output: string): number | undefined {

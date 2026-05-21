@@ -100,7 +100,7 @@ export class VerificationRunner {
           ]
         : ["Goal contract has no verification commands."],
       objectiveDelta: verificationResult === "pass" ? 1 : 0,
-      failureCountDelta: failureCount,
+      failureCount,
       confidenceDelta: verificationResult === "pass" ? 1 : 0,
       successCriteriaMet: verificationResult === "pass"
     });

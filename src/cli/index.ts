@@ -109,7 +109,7 @@ function printUsage(): void {
   harness audit --run <dir> [--cwd <dir>] [--since <snapshot>]
   harness recover --run <dir> [--cwd <dir>] [--from <snapshot>] [--apply]
   harness skills validate [--root <dir>] [--report <file>]
-  harness turn --run <dir> --phase <phase> --action <text> --verification <result> [--changed <path>] [--command <cmd>] [--info <text>] [--error-signature <sig>]
+  harness turn --run <dir> --phase <phase> --action <text> --verification <result> [--cwd <dir>] [--changed <path>] [--command <cmd>] [--info <text>] [--error-signature <sig>] [--failure-count <n>]
   harness verify --run <dir> [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
   harness codex-run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>] [--model <model>] [--codex-bin <path>]
@@ -246,6 +246,7 @@ async function recordTurn(args: string[]): Promise<void> {
     currentHypothesis: flagValue(args, "--hypothesis"),
     newInformation: flagValues(args, "--info"),
     objectiveDelta: numberFlag(args, "--objective-delta"),
+    failureCount: numberFlag(args, "--failure-count"),
     failureCountDelta: numberFlag(args, "--failure-count-delta"),
     artifactQualityDelta: numberFlag(args, "--artifact-quality-delta"),
     scopeDriftScore: numberFlag(args, "--scope-drift-score"),

@@ -7,6 +7,7 @@ import { StateMachine } from "../src/core/StateMachine.js";
 const metrics: ProgressMetrics = {
   objectiveDelta: 0,
   errorSignatureChanged: false,
+  failureCount: 0,
   failureCountDelta: 0,
   newInformationFound: false,
   artifactQualityDelta: 0,
@@ -15,7 +16,14 @@ const metrics: ProgressMetrics = {
   repeatedErrorCount: 2,
   noProgressCount: 0,
   changedArtifactsCount: 1,
-  confidenceDelta: 0
+  diffArtifactsCount: 1,
+  diffGrowthDelta: 0,
+  diffGrowthStreak: 0,
+  goalCompletionScore: 0,
+  confidenceDelta: 0,
+  confidenceScore: 0,
+  worseningScore: 0,
+  gettingWorse: false
 };
 
 test("verify enters escape divergence once repeated error budget is consumed", () => {

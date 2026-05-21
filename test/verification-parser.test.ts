@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { VerificationParser } from "../src/core/VerificationParser.js";
+import { normalizeErrorSignature, VerificationParser } from "../src/core/VerificationParser.js";
 
 const parser = new VerificationParser();
 
@@ -41,4 +41,11 @@ test("verification parser falls back to command exit signatures", () => {
 
   assert.equal(parsed.failureCount, 1);
   assert.equal(parsed.errorSignature, "shell:verify:node custom-check.js:exit-9");
+});
+
+test("error signatures normalize dynamic locations, durations, and ids", () => {
+  assert.equal(
+    normalizeErrorSignature("FAIL C:\\tmp\\repo\\test\\auth.test.ts:42:9 after 18.2ms id deadbeefdeadbeef"),
+    normalizeErrorSignature("FAIL C:/tmp/repo/test/auth.test.ts:7:1 after 4.5ms id feedfacefeedface")
+  );
 });

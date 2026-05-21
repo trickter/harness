@@ -1,8 +1,9 @@
 export type DaemonOutputMode = "report_only" | "suggest_patch" | "auto_patch";
+export type DaemonTrigger = "on_goal_finished" | "on_file_change" | "scheduled";
 
 export interface DaemonSpec {
   name: string;
-  trigger: string[];
+  trigger: DaemonTrigger[];
   scope: string[];
   maxRuntimeMinutes: number;
   maxActionsPerRun: number;

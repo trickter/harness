@@ -13,6 +13,7 @@ export interface HarnessRunPaths {
   verificationDir: string;
   reportsDir: string;
   snapshotsDir: string;
+  daemonsDir: string;
 }
 
 export interface HarnessRunStatus {
@@ -45,7 +46,8 @@ export function runPaths(runDir: string): HarnessRunPaths {
     statusPath: join(resolved, "status.json"),
     verificationDir: join(resolved, "verification"),
     reportsDir: join(resolved, "reports"),
-    snapshotsDir: join(resolved, "snapshots")
+    snapshotsDir: join(resolved, "snapshots"),
+    daemonsDir: join(resolved, "daemons")
   };
 }
 
@@ -54,7 +56,8 @@ export async function ensureRunDirectories(paths: HarnessRunPaths): Promise<void
     mkdir(paths.runDir, { recursive: true }),
     mkdir(paths.verificationDir, { recursive: true }),
     mkdir(paths.reportsDir, { recursive: true }),
-    mkdir(paths.snapshotsDir, { recursive: true })
+    mkdir(paths.snapshotsDir, { recursive: true }),
+    mkdir(paths.daemonsDir, { recursive: true })
   ]);
 }
 

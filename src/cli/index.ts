@@ -6,6 +6,7 @@ import { stringify as stringifyYaml } from "yaml";
 import { CodexCliAdapter } from "../adapters/CodexCliAdapter.js";
 import { ShellAdapter } from "../adapters/ShellAdapter.js";
 import { documentationConsistencyDaemon } from "../agents/DaemonAgent.js";
+import { DaemonScheduler, type DaemonDispatchResult } from "../agents/DaemonScheduler.js";
 import { DocumentationDaemonRunner } from "../agents/DocumentationDaemonRunner.js";
 import { CodexPlannerAgent } from "../agents/PlannerAgent.js";
 import { ContractSupervisorAgent } from "../agents/SupervisorAgent.js";
@@ -113,6 +114,7 @@ function printUsage(): void {
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
   harness codex-run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>] [--model <model>] [--codex-bin <path>]
   harness daemon documentation --contract <file> --changed <path> [--changed <path>...] [--ledger <ledger.jsonl>]
+  harness daemon dispatch --run <dir> --trigger <on_goal_finished|on_file_change|scheduled> [--cwd <dir>] [--changed <path>...] [--scheduled-at <iso>]
   harness ledger inspect <ledger.jsonl>`);
 }
 
@@ -233,10 +235,11 @@ async function recordTurn(args: string[]): Promise<void> {
   const ledger = new JsonlRunLedger(resolved.ledgerPath);
   const permissions = new PermissionPolicy(contract);
   const loop = new LoopController(contract, ledger, { permissions });
+  const changedArtifacts = flagValues(args, "--changed");
   const result = await loop.recordTurn({
     phase: requireEnum(args, "--phase", PHASES) as Phase,
     action: requireFlag(args, "--action"),
-    changedArtifacts: flagValues(args, "--changed"),
+    changedArtifacts,
     commandsRun: flagValues(args, "--command"),
     verificationResult: requireEnum(args, "--verification", VERIFICATION_RESULTS) as VerificationResult,
     errorSignature: flagValue(args, "--error-signature"),
@@ -258,6 +261,15 @@ async function recordTurn(args: string[]): Promise<void> {
   });
   const status = resolved.runDir ? await writeRunStatus(runPaths(resolved.runDir)) : undefined;
   const statusPath = resolved.runDir ? runPaths(resolved.runDir).statusPath : undefined;
+  const daemonDispatch =
+    resolved.runDir && changedArtifacts.length > 0
+      ? await dispatchRunDaemons({
+          paths: runPaths(resolved.runDir),
+          cwd: flagValue(args, "--cwd") ?? process.cwd(),
+          trigger: "on_file_change",
+          changedArtifacts
+        })
+      : undefined;
 
   console.log(
     JSON.stringify(
@@ -271,7 +283,8 @@ async function recordTurn(args: string[]): Promise<void> {
         stop: result.stopDecision.stop,
         stopReason: result.stopDecision.reason,
         runDir: resolved.runDir,
-        statusPath: status ? statusPath : undefined
+        statusPath: status ? statusPath : undefined,
+        daemonDispatch
       },
       null,
       2
@@ -305,6 +318,21 @@ async function verifyContract(args: string[]): Promise<void> {
         })
       : undefined;
   const failedCommands = result.commands.filter((command) => command.exitCode !== 0);
+  const daemonDispatch =
+    resolved.runDir && result.turn.transition.to === "FINISH"
+      ? await dispatchRunDaemons({
+          paths: runPaths(resolved.runDir),
+          cwd,
+          trigger: "on_goal_finished",
+          changedArtifacts: (
+            await changedArtifactsSinceSnapshot({
+              paths: runPaths(resolved.runDir),
+              cwd,
+              since: "baseline"
+            })
+          ).map((artifact) => artifact.path)
+        })
+      : undefined;
 
   console.log(
     JSON.stringify(
@@ -316,6 +344,7 @@ async function verifyContract(args: string[]): Promise<void> {
         healthySnapshot: healthySnapshot?.name,
         verificationResult: result.verificationResult,
         nextPhase: result.turn.transition.to,
+        daemonDispatch,
         passedCommands: result.commands.length - failedCommands.length,
         failedCommands: failedCommands.map((command) => ({
           command: command.command,
@@ -370,6 +399,51 @@ async function runDocumentationDaemon(args: string[]): Promise<void> {
   }
 }
 
+const DAEMON_TRIGGERS = ["on_goal_finished", "on_file_change", "scheduled"] as const;
+
+async function dispatchRunDaemons(input: {
+  paths: ReturnType<typeof runPaths>;
+  cwd: string;
+  trigger: (typeof DAEMON_TRIGGERS)[number];
+  changedArtifacts?: string[];
+  scheduledAt?: string;
+}): Promise<DaemonDispatchResult> {
+  const contract = await loadGoalContract(input.paths.contractPath);
+
+  return new DaemonScheduler({
+    contract,
+    cwd: input.cwd,
+    paths: input.paths
+  }).dispatch({
+    trigger: input.trigger,
+    changedArtifacts: input.changedArtifacts,
+    scheduledAt: input.scheduledAt
+  });
+}
+
+async function dispatchDaemons(args: string[]): Promise<void> {
+  const paths = runPaths(requireFlag(args, "--run"));
+  const cwd = flagValue(args, "--cwd") ?? process.cwd();
+  const changedArtifacts = flagValues(args, "--changed");
+  const trigger = requireEnum(args, "--trigger", DAEMON_TRIGGERS);
+  const dispatch = await dispatchRunDaemons({
+    paths,
+    cwd,
+    trigger,
+    changedArtifacts:
+      changedArtifacts.length > 0 || trigger === "scheduled"
+        ? changedArtifacts
+        : (await scanGitChangedArtifacts(cwd)).map((artifact) => artifact.path),
+    scheduledAt: flagValue(args, "--scheduled-at")
+  });
+
+  console.log(JSON.stringify(dispatch, null, 2));
+
+  if (dispatch.runs.some((run) => !run.isolation.valid)) {
+    process.exitCode = 1;
+  }
+}
+
 async function startRun(args: string[]): Promise<void> {
   const result = await startHarnessRun({
     contractPath: requireFlag(args, "--contract"),
@@ -392,6 +466,7 @@ async function startRun(args: string[]): Promise<void> {
         verificationDir: result.paths.verificationDir,
         reportsDir: result.paths.reportsDir,
         snapshotsDir: result.paths.snapshotsDir,
+        daemonsDir: result.paths.daemonsDir,
         baselineSnapshot: "baseline",
         baselineArtifacts: baseline.artifacts.length,
         phase: result.status.phase
@@ -635,6 +710,11 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "daemon" && subcommand === "documentation") {
     await runDocumentationDaemon(rest);
+    return;
+  }
+
+  if (command === "daemon" && subcommand === "dispatch") {
+    await dispatchDaemons(rest);
     return;
   }
 

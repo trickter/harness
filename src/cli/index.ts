@@ -31,6 +31,7 @@ import { auditChangedArtifacts, auditGitScope, scanGitChangedArtifacts } from ".
 import { VerificationRunner } from "../core/VerificationRunner.js";
 import { PHASES, type Phase } from "../core/StateMachine.js";
 import { VERIFICATION_RESULTS, type VerificationResult } from "../core/RunLedger.js";
+import { validateLocalSkills, writeSkillValidationReport } from "../skills/SkillValidation.js";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
@@ -106,6 +107,7 @@ function printUsage(): void {
   harness diff --run <dir> [--cwd <dir>]
   harness audit --run <dir> [--cwd <dir>] [--since <snapshot>]
   harness recover --run <dir> [--cwd <dir>] [--from <snapshot>] [--apply]
+  harness skills validate [--root <dir>] [--report <file>]
   harness turn --run <dir> --phase <phase> --action <text> --verification <result> [--changed <path>] [--command <cmd>] [--info <text>] [--error-signature <sig>]
   harness verify --run <dir> [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
@@ -535,6 +537,22 @@ async function inspectLedger(path: string): Promise<void> {
   );
 }
 
+async function validateSkills(args: string[]): Promise<void> {
+  const root = flagValue(args, "--root") ?? join(process.cwd(), "skills");
+  const report = await validateLocalSkills(root);
+  const reportPath = flagValue(args, "--report");
+
+  if (reportPath) {
+    await writeSkillValidationReport(reportPath, report);
+  }
+
+  console.log(JSON.stringify({ report: reportPath, ...report }, null, 2));
+
+  if (!report.valid) {
+    process.exitCode = 1;
+  }
+}
+
 async function main(args: string[]): Promise<void> {
   const [command, subcommand, ...rest] = args;
 
@@ -585,6 +603,11 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "recover") {
     await recoverRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "skills" && subcommand === "validate") {
+    await validateSkills(rest);
     return;
   }
 

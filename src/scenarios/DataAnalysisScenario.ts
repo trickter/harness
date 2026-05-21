@@ -1,0 +1,28 @@
+import { parseGoalContract, type GoalContract } from "../core/GoalContract.js";
+
+export function createCsvQualityScenario(): GoalContract {
+  return parseGoalContract({
+    goal: {
+      id: "csv-quality-report",
+      name: "CSV Data Quality Report",
+      objective: "Check a CSV dataset for missing values, duplicates, and outliers before analysis.",
+      expectedOutputs: ["reports/data-quality.md"]
+    },
+    scope: {
+      allowedArtifacts: ["data/**", "reports/**"],
+      forbiddenArtifacts: [".env*", "secrets/**"],
+      allowedOperations: ["fs:read", "fs:write", "shell:data-check"],
+      forbiddenOperations: ["fs:delete", "network:*"]
+    },
+    successCriteria: ["Quality checks are recorded.", "Confidence limitations are stated."],
+    verification: {
+      commands: ["node scripts/check-csv.mjs data/sample.csv"],
+      checks: ["missing", "duplicates", "outliers", "field meanings"],
+      qualityGates: ["report cites check outputs"]
+    },
+    stopConditions: {
+      success: ["Report contains evidence and limitations."],
+      fail: ["Dataset meaning is unknown and cannot be inferred safely."]
+    }
+  });
+}

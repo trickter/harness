@@ -1,0 +1,25 @@
+{
+  "name": "codex-autonomous-harness",
+  "version": "0.1.0",
+  "description": "Policy-bound runtime scaffolding for autonomous Codex harness runs.",
+  "type": "module",
+  "bin": {
+    "harness": "./dist/src/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run build",
+    "test": "npm run build && node --test \"dist/test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.10",
+    "typescript": "^5.9.3"
+  }
+}

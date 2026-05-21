@@ -1,0 +1,28 @@
+import { parseGoalContract, type GoalContract } from "../core/GoalContract.js";
+
+export function createWebhookSignatureScenario(): GoalContract {
+  return parseGoalContract({
+    goal: {
+      id: "webhook-signature",
+      name: "Webhook Signature Module",
+      objective: "Add request signature verification for inbound webhooks.",
+      expectedOutputs: ["src/webhooks/signature.ts", "webhook signature tests"]
+    },
+    scope: {
+      allowedArtifacts: ["src/**", "test/**", "package.json"],
+      forbiddenArtifacts: [".env*", "secrets/**"],
+      allowedOperations: ["fs:read", "fs:write", "shell:test", "shell:typecheck", "git:diff"],
+      forbiddenOperations: ["fs:delete", "git:push"]
+    },
+    successCriteria: ["Valid signatures pass.", "Invalid or missing signatures fail."],
+    verification: {
+      commands: ["npm test -- webhook", "npm run check"],
+      checks: ["Header and body are both covered by tests."],
+      qualityGates: ["Focused tests pass.", "Typecheck passes."]
+    },
+    stopConditions: {
+      success: ["All success criteria are verified."],
+      fail: ["Permission denied without approval."]
+    }
+  });
+}

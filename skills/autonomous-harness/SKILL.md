@@ -13,44 +13,48 @@ Do not use `harness codex-run`, `CodexCliAdapter`, or any code path that launche
 
 1. Build first when source changed: `npm run build`.
 2. Create or load a Goal Contract. Prefer `harness init-contract` for a draft, then edit the YAML only when the user has asked for implementation.
-3. Use one ledger for the whole goal, normally `.harness/runs/<goal-id>/ledger.jsonl`.
-4. Record planning before execution:
+3. Start a run directory with `harness start --contract <goal.yaml>`. Use the returned `runDir` for the rest of the goal.
+4. Use `harness status --run <runDir>` before deciding the next step, and `harness resume --run <runDir>` after interruptions.
+5. Record planning before execution:
    - phase: `DIVERGE_PLAN` or `ESCAPE_DIVERGE`
    - verification: `skipped`
    - include `--selected-strategy-ready` or `--alternative-strategy-selected` only when the next action is bounded and permission-compatible.
-5. Execute exactly one bounded action directly in the current Codex session.
-6. Record the action with `harness turn`:
+6. Execute exactly one bounded action directly in the current Codex session.
+7. Record the action with `harness turn`:
    - phase: `CONVERGE_EXECUTE` or `REPAIR`
    - verification: `skipped`
    - include changed artifacts, commands run, new information, and `--action-completed` or `--repair-completed`.
-7. Verify with `harness verify --contract <contract> --ledger <ledger> [--cwd <dir>]`.
-8. Inspect ledger with `harness ledger inspect <ledger>` and continue from `nextPhase`.
-9. Stop only when the ledger reaches `FINISH`, `NEED_HUMAN`, or `ABORT`.
+8. Verify with `harness verify --run <runDir> [--cwd <dir>]`.
+9. Inspect status with `harness status --run <runDir>` and continue from `phase`.
+10. Stop only when the status reaches `FINISH`, `NEED_HUMAN`, or `ABORT`.
 
 ## Command Templates
 
 Planning:
 
 ```bash
-harness turn --contract goal.yaml --ledger .harness/runs/<goal-id>/ledger.jsonl --phase DIVERGE_PLAN --action "Plan next bounded action" --verification skipped --hypothesis "..." --info "..." --selected-strategy-ready
+harness start --contract goal.yaml
+harness status --run .harness/runs/<goal-id>
+harness turn --run .harness/runs/<goal-id> --phase DIVERGE_PLAN --action "Plan next bounded action" --verification skipped --hypothesis "..." --info "..." --selected-strategy-ready
 ```
 
 Execution:
 
 ```bash
-harness turn --contract goal.yaml --ledger .harness/runs/<goal-id>/ledger.jsonl --phase CONVERGE_EXECUTE --action "Implement one bounded change" --verification skipped --changed src/file.ts --info "..." --action-completed --objective-delta 0.1
+harness turn --run .harness/runs/<goal-id> --phase CONVERGE_EXECUTE --action "Implement one bounded change" --verification skipped --changed src/file.ts --info "..." --action-completed --objective-delta 0.1
 ```
 
 Repair:
 
 ```bash
-harness turn --contract goal.yaml --ledger .harness/runs/<goal-id>/ledger.jsonl --phase REPAIR --action "Repair the current verification failure" --verification skipped --changed src/file.ts --info "..." --repair-completed --objective-delta 0.1
+harness turn --run .harness/runs/<goal-id> --phase REPAIR --action "Repair the current verification failure" --verification skipped --changed src/file.ts --info "..." --repair-completed --objective-delta 0.1
 ```
 
 Verification:
 
 ```bash
-harness verify --contract goal.yaml --ledger .harness/runs/<goal-id>/ledger.jsonl
+harness verify --run .harness/runs/<goal-id>
+harness resume --run .harness/runs/<goal-id>
 ```
 
 ## Rules

@@ -15,7 +15,16 @@ import { AutonomousRun } from "../core/AutonomousRun.js";
 import { createGoalContractTemplate, loadGoalContract } from "../core/GoalContract.js";
 import { LoopController } from "../core/LoopController.js";
 import { PermissionPolicy } from "../core/PermissionPolicy.js";
-import { JsonlRunLedger, type RunLedgerEntry } from "../core/RunLedger.js";
+import {
+  ensureRunDirectories,
+  readRunStatus,
+  resumeHarnessRun,
+  runPaths,
+  startHarnessRun,
+  summarizeLedger,
+  writeRunStatus
+} from "../core/RunDirectory.js";
+import { JsonlRunLedger } from "../core/RunLedger.js";
 import { VerificationRunner } from "../core/VerificationRunner.js";
 import { PHASES, type Phase } from "../core/StateMachine.js";
 import { VERIFICATION_RESULTS, type VerificationResult } from "../core/RunLedger.js";
@@ -87,8 +96,11 @@ function requireEnum<T extends readonly string[]>(args: string[], flag: string, 
 function printUsage(): void {
   console.log(`Usage:
   harness init-contract --name <name> --objective <objective> [--id <id>] [--out <file>]
-  harness turn --contract <file> --ledger <ledger.jsonl> --phase <phase> --action <text> --verification <result> [--changed <path>] [--command <cmd>] [--info <text>] [--error-signature <sig>]
-  harness verify --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>]
+  harness start --contract <file> [--run <dir>]
+  harness status --run <dir>
+  harness resume --run <dir>
+  harness turn --run <dir> --phase <phase> --action <text> --verification <result> [--changed <path>] [--command <cmd>] [--info <text>] [--error-signature <sig>]
+  harness verify --run <dir> [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
   harness codex-run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>] [--model <model>] [--codex-bin <path>]
   harness daemon documentation --contract <file> --changed <path> [--changed <path>...] [--ledger <ledger.jsonl>]
@@ -113,6 +125,33 @@ async function initContract(args: string[]): Promise<void> {
   process.stdout.write(output);
 }
 
+async function resolveContractAndLedger(args: string[]): Promise<{
+  contractPath: string;
+  ledgerPath: string;
+  runDir?: string;
+}> {
+  const runDir = flagValue(args, "--run");
+
+  if (runDir) {
+    const paths = runPaths(runDir);
+    await ensureRunDirectories(paths);
+
+    return {
+      contractPath: paths.contractPath,
+      ledgerPath: paths.ledgerPath,
+      runDir: paths.runDir
+    };
+  }
+
+  const contractPath = requireFlag(args, "--contract");
+  const contract = await loadGoalContract(contractPath);
+
+  return {
+    contractPath,
+    ledgerPath: flagValue(args, "--ledger") ?? join(".harness", "runs", contract.goal.id, "ledger.jsonl")
+  };
+}
+
 async function dryPolicy(args: string[]): Promise<void> {
   const contract = await loadGoalContract(requireFlag(args, "--contract"));
   const decision = new PermissionPolicy(contract).evaluate({
@@ -132,9 +171,9 @@ async function dryPolicy(args: string[]): Promise<void> {
 }
 
 async function runContract(args: string[]): Promise<void> {
-  const contract = await loadGoalContract(requireFlag(args, "--contract"));
-  const ledgerPath = flagValue(args, "--ledger") ?? join(".harness", "runs", contract.goal.id, "ledger.jsonl");
-  const ledger = new JsonlRunLedger(ledgerPath);
+  const resolved = await resolveContractAndLedger(args);
+  const contract = await loadGoalContract(resolved.contractPath);
+  const ledger = new JsonlRunLedger(resolved.ledgerPath);
   const permissions = new PermissionPolicy(contract);
   const loop = new LoopController(contract, ledger, { permissions });
   const cwd = flagValue(args, "--cwd") ?? process.cwd();
@@ -159,7 +198,8 @@ async function runContract(args: string[]): Promise<void> {
     JSON.stringify(
       {
         goalId: contract.goal.id,
-        ledger: ledgerPath,
+        ledger: resolved.ledgerPath,
+        runDir: resolved.runDir,
         phase: result.phase,
         iterations: result.ledger.length,
         plans: result.plans.length,
@@ -179,8 +219,9 @@ async function runContract(args: string[]): Promise<void> {
 }
 
 async function recordTurn(args: string[]): Promise<void> {
-  const contract = await loadGoalContract(requireFlag(args, "--contract"));
-  const ledger = new JsonlRunLedger(requireFlag(args, "--ledger"));
+  const resolved = await resolveContractAndLedger(args);
+  const contract = await loadGoalContract(resolved.contractPath);
+  const ledger = new JsonlRunLedger(resolved.ledgerPath);
   const permissions = new PermissionPolicy(contract);
   const loop = new LoopController(contract, ledger, { permissions });
   const result = await loop.recordTurn({
@@ -206,6 +247,8 @@ async function recordTurn(args: string[]): Promise<void> {
     humanApproved: hasFlag(args, "--human-approved"),
     humanDenied: hasFlag(args, "--human-denied")
   });
+  const status = resolved.runDir ? await writeRunStatus(runPaths(resolved.runDir)) : undefined;
+  const statusPath = resolved.runDir ? runPaths(resolved.runDir).statusPath : undefined;
 
   console.log(
     JSON.stringify(
@@ -217,7 +260,9 @@ async function recordTurn(args: string[]): Promise<void> {
         progressSignal: result.entry.progressSignal,
         transitionReason: result.transition.reason,
         stop: result.stopDecision.stop,
-        stopReason: result.stopDecision.reason
+        stopReason: result.stopDecision.reason,
+        runDir: resolved.runDir,
+        statusPath: status ? statusPath : undefined
       },
       null,
       2
@@ -230,21 +275,24 @@ async function recordTurn(args: string[]): Promise<void> {
 }
 
 async function verifyContract(args: string[]): Promise<void> {
-  const contract = await loadGoalContract(requireFlag(args, "--contract"));
-  const ledgerPath =
-    flagValue(args, "--ledger") ?? join(".harness", "runs", contract.goal.id, "verification.ledger.jsonl");
-  const ledger = new JsonlRunLedger(ledgerPath);
+  const resolved = await resolveContractAndLedger(args);
+  const contract = await loadGoalContract(resolved.contractPath);
+  const ledger = new JsonlRunLedger(resolved.ledgerPath);
   const permissions = new PermissionPolicy(contract);
   const loop = new LoopController(contract, ledger, { permissions });
   const shell = new ShellAdapter(permissions);
   const result = await new VerificationRunner(contract, loop, shell).run({ cwd: flagValue(args, "--cwd") });
+  const status = resolved.runDir ? await writeRunStatus(runPaths(resolved.runDir)) : undefined;
+  const statusPath = resolved.runDir ? runPaths(resolved.runDir).statusPath : undefined;
   const failedCommands = result.commands.filter((command) => command.exitCode !== 0);
 
   console.log(
     JSON.stringify(
       {
         goalId: contract.goal.id,
-        ledger: ledgerPath,
+        ledger: resolved.ledgerPath,
+        runDir: resolved.runDir,
+        statusPath: status ? statusPath : undefined,
         verificationResult: result.verificationResult,
         nextPhase: result.turn.transition.to,
         passedCommands: result.commands.length - failedCommands.length,
@@ -267,24 +315,27 @@ async function verifyContract(args: string[]): Promise<void> {
 }
 
 async function runDocumentationDaemon(args: string[]): Promise<void> {
-  const contract = await loadGoalContract(requireFlag(args, "--contract"));
+  const resolved = await resolveContractAndLedger(args);
+  const contract = await loadGoalContract(resolved.contractPath);
   const changedArtifacts = flagValues(args, "--changed");
 
   if (changedArtifacts.length === 0) {
     throw new Error("documentation daemon requires at least one --changed path");
   }
 
-  const ledgerPath =
-    flagValue(args, "--ledger") ?? join(".harness", "runs", contract.goal.id, "documentation-daemon.ledger.jsonl");
   const permissions = new PermissionPolicy(contract);
-  const loop = new LoopController(contract, new JsonlRunLedger(ledgerPath), { permissions });
+  const loop = new LoopController(contract, new JsonlRunLedger(resolved.ledgerPath), { permissions });
   const runner = new DocumentationDaemonRunner(documentationConsistencyDaemon, loop);
   const result = await runner.run({ changedArtifacts });
+  const status = resolved.runDir ? await writeRunStatus(runPaths(resolved.runDir)) : undefined;
+  const statusPath = resolved.runDir ? runPaths(resolved.runDir).statusPath : undefined;
 
   console.log(
     JSON.stringify(
       {
-        ledger: ledgerPath,
+        ledger: resolved.ledgerPath,
+        runDir: resolved.runDir,
+        statusPath: status ? statusPath : undefined,
         nextPhase: result.turn.transition.to,
         ...result.report
       },
@@ -298,12 +349,42 @@ async function runDocumentationDaemon(args: string[]): Promise<void> {
   }
 }
 
-function countBy(entries: RunLedgerEntry[], key: "phase" | "verificationResult"): Record<string, number> {
-  return entries.reduce<Record<string, number>>((counts, entry) => {
-    const value = entry[key];
-    counts[value] = (counts[value] ?? 0) + 1;
-    return counts;
-  }, {});
+async function startRun(args: string[]): Promise<void> {
+  const result = await startHarnessRun({
+    contractPath: requireFlag(args, "--contract"),
+    runDir: flagValue(args, "--run")
+  });
+
+  console.log(
+    JSON.stringify(
+      {
+        runDir: result.paths.runDir,
+        contract: result.paths.contractPath,
+        ledger: result.paths.ledgerPath,
+        status: result.paths.statusPath,
+        verificationDir: result.paths.verificationDir,
+        reportsDir: result.paths.reportsDir,
+        snapshotsDir: result.paths.snapshotsDir,
+        phase: result.status.phase
+      },
+      null,
+      2
+    )
+  );
+}
+
+async function statusRun(args: string[]): Promise<void> {
+  const paths = runPaths(requireFlag(args, "--run"));
+  const status = await readRunStatus(paths);
+  const entries = await new JsonlRunLedger(paths.ledgerPath).readAll();
+
+  console.log(JSON.stringify({ ...status, ...summarizeLedger(entries) }, null, 2));
+}
+
+async function resumeRun(args: string[]): Promise<void> {
+  const resume = await resumeHarnessRun(runPaths(requireFlag(args, "--run")));
+
+  console.log(JSON.stringify(resume, null, 2));
 }
 
 async function inspectLedger(path: string): Promise<void> {
@@ -317,8 +398,8 @@ async function inspectLedger(path: string): Promise<void> {
         goalId: latest?.goalId,
         latestPhase: latest?.phase,
         nextPhase: latest?.nextPhase,
-        phases: countBy(entries, "phase"),
-        verification: countBy(entries, "verificationResult")
+        phases: summarizeLedger(entries).phases,
+        verification: summarizeLedger(entries).verification
       },
       null,
       2
@@ -341,6 +422,21 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "run" && subcommand === "--dry-policy") {
     await dryPolicy(rest);
+    return;
+  }
+
+  if (command === "start") {
+    await startRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "status") {
+    await statusRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "resume") {
+    await resumeRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
     return;
   }
 

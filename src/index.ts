@@ -20,6 +20,7 @@ export * from "./core/LoopController.js";
 export * from "./core/PermissionPolicy.js";
 export * from "./core/ProgressEvaluator.js";
 export * from "./core/RecoveryPolicy.js";
+export * from "./core/RunDirectory.js";
 export * from "./core/RunLedger.js";
 export * from "./core/StateMachine.js";
 export * from "./core/StopPolicy.js";

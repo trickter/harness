@@ -17,6 +17,8 @@ import { LoopController } from "../core/LoopController.js";
 import { PermissionPolicy } from "../core/PermissionPolicy.js";
 import { JsonlRunLedger, type RunLedgerEntry } from "../core/RunLedger.js";
 import { VerificationRunner } from "../core/VerificationRunner.js";
+import { PHASES, type Phase } from "../core/StateMachine.js";
+import { VERIFICATION_RESULTS, type VerificationResult } from "../core/RunLedger.js";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
@@ -56,12 +58,39 @@ function hasFlag(args: string[], flag: string): boolean {
   return args.includes(flag);
 }
 
+function numberFlag(args: string[], flag: string): number | undefined {
+  const value = flagValue(args, flag);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${flag} must be a finite number`);
+  }
+
+  return parsed;
+}
+
+function requireEnum<T extends readonly string[]>(args: string[], flag: string, values: T): T[number] {
+  const value = requireFlag(args, flag);
+
+  if (!values.includes(value)) {
+    throw new Error(`${flag} must be one of ${values.join(", ")}`);
+  }
+
+  return value;
+}
+
 function printUsage(): void {
   console.log(`Usage:
   harness init-contract --name <name> --objective <objective> [--id <id>] [--out <file>]
-  harness run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>] [--model <model>] [--codex-bin <path>]
+  harness turn --contract <file> --ledger <ledger.jsonl> --phase <phase> --action <text> --verification <result> [--changed <path>] [--command <cmd>] [--info <text>] [--error-signature <sig>]
   harness verify --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
+  harness codex-run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>] [--model <model>] [--codex-bin <path>]
   harness daemon documentation --contract <file> --changed <path> [--changed <path>...] [--ledger <ledger.jsonl>]
   harness ledger inspect <ledger.jsonl>`);
 }
@@ -145,6 +174,57 @@ async function runContract(args: string[]): Promise<void> {
   );
 
   if (result.phase !== "FINISH") {
+    process.exitCode = 1;
+  }
+}
+
+async function recordTurn(args: string[]): Promise<void> {
+  const contract = await loadGoalContract(requireFlag(args, "--contract"));
+  const ledger = new JsonlRunLedger(requireFlag(args, "--ledger"));
+  const permissions = new PermissionPolicy(contract);
+  const loop = new LoopController(contract, ledger, { permissions });
+  const result = await loop.recordTurn({
+    phase: requireEnum(args, "--phase", PHASES) as Phase,
+    action: requireFlag(args, "--action"),
+    changedArtifacts: flagValues(args, "--changed"),
+    commandsRun: flagValues(args, "--command"),
+    verificationResult: requireEnum(args, "--verification", VERIFICATION_RESULTS) as VerificationResult,
+    errorSignature: flagValue(args, "--error-signature"),
+    currentHypothesis: flagValue(args, "--hypothesis"),
+    newInformation: flagValues(args, "--info"),
+    objectiveDelta: numberFlag(args, "--objective-delta"),
+    failureCountDelta: numberFlag(args, "--failure-count-delta"),
+    artifactQualityDelta: numberFlag(args, "--artifact-quality-delta"),
+    scopeDriftScore: numberFlag(args, "--scope-drift-score"),
+    confidenceDelta: numberFlag(args, "--confidence-delta"),
+    selectedStrategyReady: hasFlag(args, "--selected-strategy-ready"),
+    alternativeStrategySelected: hasFlag(args, "--alternative-strategy-selected"),
+    actionCompleted: hasFlag(args, "--action-completed"),
+    repairCompleted: hasFlag(args, "--repair-completed"),
+    successCriteriaMet: hasFlag(args, "--success-criteria-met"),
+    permissionRequired: hasFlag(args, "--permission-required"),
+    humanApproved: hasFlag(args, "--human-approved"),
+    humanDenied: hasFlag(args, "--human-denied")
+  });
+
+  console.log(
+    JSON.stringify(
+      {
+        goalId: contract.goal.id,
+        iteration: result.entry.iteration,
+        phase: result.entry.phase,
+        nextPhase: result.entry.nextPhase,
+        progressSignal: result.entry.progressSignal,
+        transitionReason: result.transition.reason,
+        stop: result.stopDecision.stop,
+        stopReason: result.stopDecision.reason
+      },
+      null,
+      2
+    )
+  );
+
+  if (result.entry.nextPhase === "ABORT" || result.entry.nextPhase === "NEED_HUMAN") {
     process.exitCode = 1;
   }
 }
@@ -265,7 +345,19 @@ async function main(args: string[]): Promise<void> {
   }
 
   if (command === "run") {
+    printUsage();
+    console.error("harness run is reserved for Codex /goal skill-driven operation; use harness turn/verify, or harness codex-run for the experimental Codex subprocess runner.");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (command === "codex-run") {
     await runContract([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "turn") {
+    await recordTurn([subcommand, ...rest].filter((value): value is string => Boolean(value)));
     return;
   }
 

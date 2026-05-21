@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import type { DaemonSpec } from "../src/agents/DaemonAgent.js";
-import { DaemonScheduler, type DaemonRegistration } from "../src/agents/DaemonScheduler.js";
+import { DaemonScheduler, type DaemonRegistration, documentationDaemonRegistration } from "../src/agents/DaemonScheduler.js";
 import { parseGoalContract } from "../src/core/GoalContract.js";
 import { runPaths } from "../src/core/RunDirectory.js";
 import { JsonlRunLedger } from "../src/core/RunLedger.js";
@@ -52,7 +52,12 @@ async function createGitWorkspace(): Promise<string> {
 test("daemon scheduler writes documentation runs to isolated ledger and report paths", async () => {
   const cwd = await createGitWorkspace();
   const paths = runPaths(join(cwd, ".harness", "runs", "daemon-scheduler"));
-  const dispatch = await new DaemonScheduler({ contract: contract(), cwd, paths }).dispatch({
+  const dispatch = await new DaemonScheduler({
+    contract: contract(),
+    cwd,
+    paths,
+    registrations: [documentationDaemonRegistration()]
+  }).dispatch({
     trigger: "on_file_change",
     changedArtifacts: ["src/webhooks/signature.ts"]
   });

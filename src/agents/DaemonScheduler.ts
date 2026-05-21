@@ -16,6 +16,8 @@ import {
 } from "../core/ScopeAudit.js";
 import { documentationConsistencyDaemon, type DaemonOutputMode, type DaemonSpec, type DaemonTrigger } from "./DaemonAgent.js";
 import { DocumentationDaemonRunner } from "./DocumentationDaemonRunner.js";
+import { architectureConsistencyDaemon, ArchitectureConsistencyDaemonRunner } from "./ArchitectureConsistencyDaemon.js";
+import { testCoverageDaemon, TestCoverageDaemonRunner } from "./TestCoverageDaemon.js";
 
 export interface DaemonTriggerEvent {
   trigger: DaemonTrigger;
@@ -173,7 +175,11 @@ export class DaemonScheduler {
     this.contract = input.contract;
     this.cwd = input.cwd;
     this.paths = input.paths;
-    this.registrations = input.registrations ?? [documentationDaemonRegistration()];
+    this.registrations = input.registrations ?? [
+      documentationDaemonRegistration(),
+      architectureDaemonRegistration(),
+      testCoverageDaemonRegistration()
+    ];
     this.now = input.now ?? (() => new Date());
   }
 
@@ -265,3 +271,30 @@ export function documentationDaemonRegistration(): DaemonRegistration {
     }
   };
 }
+
+export function architectureDaemonRegistration(): DaemonRegistration {
+  return {
+    spec: architectureConsistencyDaemon,
+    async run(event, context) {
+      const result = await new ArchitectureConsistencyDaemonRunner(architectureConsistencyDaemon, context.loop).run({
+        changedArtifacts: event.changedArtifacts ?? []
+      });
+
+      return { report: result.report };
+    }
+  };
+}
+
+export function testCoverageDaemonRegistration(): DaemonRegistration {
+  return {
+    spec: testCoverageDaemon,
+    async run(event, context) {
+      const result = await new TestCoverageDaemonRunner(testCoverageDaemon, context.loop).run({
+        changedArtifacts: event.changedArtifacts ?? []
+      });
+
+      return { report: result.report };
+    }
+  };
+}
+

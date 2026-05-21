@@ -17,6 +17,13 @@ export const DEFAULT_RISK_POLICY = {
   secretAccess: "forbidden"
 } as const;
 
+export const DEFAULT_SCOPE = {
+  allowedArtifacts: [],
+  forbiddenArtifacts: [".env*", "**/.env*", "secrets/**"],
+  allowedOperations: ["fs:read"],
+  forbiddenOperations: ["fs:delete", "git:push"]
+};
+
 const nonEmptyString = z.string().trim().min(1);
 const stringList = z.array(nonEmptyString).default([]);
 
@@ -53,17 +60,12 @@ export const goalContractSchema = z.object({
   }),
   scope: z
     .object({
-      allowedArtifacts: stringList,
-      forbiddenArtifacts: stringList,
-      allowedOperations: stringList,
-      forbiddenOperations: stringList
+      allowedArtifacts: stringList.default(DEFAULT_SCOPE.allowedArtifacts),
+      forbiddenArtifacts: stringList.default(DEFAULT_SCOPE.forbiddenArtifacts),
+      allowedOperations: stringList.default(DEFAULT_SCOPE.allowedOperations),
+      forbiddenOperations: stringList.default(DEFAULT_SCOPE.forbiddenOperations)
     })
-    .default({
-      allowedArtifacts: [],
-      forbiddenArtifacts: [".env*", "**/.env*", "secrets/**"],
-      allowedOperations: ["fs:read"],
-      forbiddenOperations: ["fs:delete", "git:push"]
-    }),
+    .default(DEFAULT_SCOPE),
   successCriteria: stringList,
   verification: z
     .object({
@@ -160,10 +162,7 @@ export function createGoalContractTemplate(input: {
       expectedOutputs: []
     },
     scope: {
-      allowedArtifacts: [],
-      forbiddenArtifacts: [".env*", "**/.env*", "secrets/**"],
-      allowedOperations: ["fs:read"],
-      forbiddenOperations: ["fs:delete", "git:push"]
+      ...DEFAULT_SCOPE
     },
     successCriteria: [],
     verification: {

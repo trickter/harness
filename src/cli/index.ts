@@ -3,9 +3,15 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
+import { CodexCliAdapter } from "../adapters/CodexCliAdapter.js";
 import { ShellAdapter } from "../adapters/ShellAdapter.js";
 import { documentationConsistencyDaemon } from "../agents/DaemonAgent.js";
 import { DocumentationDaemonRunner } from "../agents/DocumentationDaemonRunner.js";
+import { CodexPlannerAgent } from "../agents/PlannerAgent.js";
+import { ContractSupervisorAgent } from "../agents/SupervisorAgent.js";
+import { ContractVerifierAgent } from "../agents/VerifierAgent.js";
+import { CodexWorkerAgent } from "../agents/WorkerAgent.js";
+import { AutonomousRun } from "../core/AutonomousRun.js";
 import { createGoalContractTemplate, loadGoalContract } from "../core/GoalContract.js";
 import { LoopController } from "../core/LoopController.js";
 import { PermissionPolicy } from "../core/PermissionPolicy.js";
@@ -53,7 +59,8 @@ function hasFlag(args: string[], flag: string): boolean {
 function printUsage(): void {
   console.log(`Usage:
   harness init-contract --name <name> --objective <objective> [--id <id>] [--out <file>]
-  harness run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>]
+  harness run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>] [--model <model>] [--codex-bin <path>]
+  harness verify --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
   harness daemon documentation --contract <file> --changed <path> [--changed <path>...] [--ledger <ledger.jsonl>]
   harness ledger inspect <ledger.jsonl>`);
@@ -101,9 +108,56 @@ async function runContract(args: string[]): Promise<void> {
   const ledger = new JsonlRunLedger(ledgerPath);
   const permissions = new PermissionPolicy(contract);
   const loop = new LoopController(contract, ledger, { permissions });
+  const cwd = flagValue(args, "--cwd") ?? process.cwd();
   const shell = new ShellAdapter(permissions);
-  const runner = new VerificationRunner(contract, loop, shell);
-  const result = await runner.run({ cwd: flagValue(args, "--cwd") });
+  const codex = new CodexCliAdapter({
+    binary: flagValue(args, "--codex-bin"),
+    model: flagValue(args, "--model")
+  });
+  const verifier = new ContractVerifierAgent(new VerificationRunner(contract, loop, shell));
+  const runner = new AutonomousRun(
+    contract,
+    loop,
+    new CodexPlannerAgent(codex, cwd),
+    new ContractSupervisorAgent(),
+    new CodexWorkerAgent(codex, cwd),
+    verifier
+  );
+  const result = await runner.run({ cwd });
+  const latest = result.ledger.at(-1);
+
+  console.log(
+    JSON.stringify(
+      {
+        goalId: contract.goal.id,
+        ledger: ledgerPath,
+        phase: result.phase,
+        iterations: result.ledger.length,
+        plans: result.plans.length,
+        workerActions: result.workerResults.length,
+        verificationRuns: result.verificationRuns.length,
+        latestAction: latest?.action,
+        latestVerificationResult: latest?.verificationResult
+      },
+      null,
+      2
+    )
+  );
+
+  if (result.phase !== "FINISH") {
+    process.exitCode = 1;
+  }
+}
+
+async function verifyContract(args: string[]): Promise<void> {
+  const contract = await loadGoalContract(requireFlag(args, "--contract"));
+  const ledgerPath =
+    flagValue(args, "--ledger") ?? join(".harness", "runs", contract.goal.id, "verification.ledger.jsonl");
+  const ledger = new JsonlRunLedger(ledgerPath);
+  const permissions = new PermissionPolicy(contract);
+  const loop = new LoopController(contract, ledger, { permissions });
+  const shell = new ShellAdapter(permissions);
+  const result = await new VerificationRunner(contract, loop, shell).run({ cwd: flagValue(args, "--cwd") });
   const failedCommands = result.commands.filter((command) => command.exitCode !== 0);
 
   console.log(
@@ -212,6 +266,11 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "run") {
     await runContract([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "verify") {
+    await verifyContract([subcommand, ...rest].filter((value): value is string => Boolean(value)));
     return;
   }
 

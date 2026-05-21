@@ -98,9 +98,9 @@ test("skill validation report checks local harness protocol and can be emitted b
   ) as { valid: boolean; skillCount: number; schemaCount: number };
 
   assert.equal(report.valid, true);
-  assert.equal(report.skillCount, 10);
-  assert.equal(report.schemaCount, 9);
+  assert.equal(report.skillCount, 14);
+  assert.equal(report.schemaCount, 13);
   assert.equal(cliReport.valid, true);
-  assert.equal(cliReport.skillCount, 10);
+  assert.equal(cliReport.skillCount, 14);
   assert.match(await readFile(reportPath, "utf8"), /autonomous-harness/);
 });

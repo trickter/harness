@@ -41,7 +41,11 @@ const REQUIRED_SKILL_REFERENCES: Record<string, string> = {
   "escape-divergence-skill": "references/escape-output.md",
   "supervisor-skill": "references/supervisor-decision.md",
   "daemon-agent-skill": "references/daemon-spec.md",
-  "artifact-modeling-skill": "references/artifact-graph.md"
+  "artifact-modeling-skill": "references/artifact-graph.md",
+  "recovery-skill": "references/recovery-report.md",
+  "data-analysis-skill": "references/data-analysis-output.md",
+  "auto-modeling-skill": "references/auto-modeling-output.md",
+  "model-optimization-skill": "references/model-optimization-output.md"
 };
 
 const AUTONOMOUS_REQUIRED_MARKERS = [

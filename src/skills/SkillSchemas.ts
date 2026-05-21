@@ -90,6 +90,31 @@ export const skillOutputSchemas = {
       })
     ),
     edges: z.array(artifactEdgeSchema)
+  }),
+  "recovery-skill": z.object({
+    status: z.string(),
+    revertAdvice: z.array(z.object({ path: z.string(), reason: z.string() })),
+    keepAdvice: z.array(z.object({ path: z.string(), reason: z.string() })),
+    recoverySteps: stringList
+  }),
+  "data-analysis-skill": z.object({
+    datasetPath: z.string(),
+    summary: z.object({ rowCount: z.number().int(), columnCount: z.number().int() }),
+    findings: stringList,
+    confidenceStatement: z.string()
+  }),
+  "auto-modeling-skill": z.object({
+    baseline: z.object({ modelName: z.string(), validationScore: z.number() }),
+    experiments: z.array(z.object({ modelName: z.string(), validationScore: z.number(), parameters: z.record(z.string(), z.unknown()) })),
+    bestModel: z.string(),
+    dataLeakageChecked: z.boolean()
+  }),
+  "model-optimization-skill": z.object({
+    baselineScore: z.number(),
+    targetMetric: z.string(),
+    tuningIterations: z.array(z.object({ iteration: z.number().int(), parameters: z.record(z.string(), z.unknown()), score: z.number() })),
+    bestScore: z.number(),
+    optimizationComplete: z.boolean()
   })
 } as const;
 

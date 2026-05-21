@@ -1,8 +1,5 @@
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { PermissionPolicy } from "../core/PermissionPolicy.js";
-
-const execFileAsync = promisify(execFile);
 
 export interface ShellRunRequest {
   command: string;
@@ -14,6 +11,7 @@ export interface ShellRunRequest {
 }
 
 export interface ShellRunResult {
+  exitCode: number;
   stdout: string;
   stderr: string;
 }
@@ -32,14 +30,28 @@ export class ShellAdapter {
       externalNetwork: request.externalNetwork
     });
 
-    const result = await execFileAsync(request.command, request.args ?? [], {
-      cwd: request.cwd,
-      windowsHide: true
-    });
+    return new Promise((resolve, reject) => {
+      execFile(
+        request.command,
+        request.args ?? [],
+        {
+          cwd: request.cwd,
+          windowsHide: true
+        },
+        (error, stdout, stderr) => {
+          if (!error) {
+            resolve({ exitCode: 0, stdout, stderr });
+            return;
+          }
 
-    return {
-      stdout: result.stdout,
-      stderr: result.stderr
-    };
+          if (typeof error.code === "number") {
+            resolve({ exitCode: error.code, stdout, stderr });
+            return;
+          }
+
+          reject(error);
+        }
+      );
+    });
   }
 }

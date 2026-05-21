@@ -40,6 +40,7 @@ const budgetSchema = z
 
 export const riskPolicySchema = z
   .object({
+    profile: z.enum(["sandbox", "workspace", "production"]).optional(),
     destructiveActions: z
       .enum(["forbidden", "require_explicit_approval", "allowed_in_sandbox"])
       .default(DEFAULT_RISK_POLICY.destructiveActions),

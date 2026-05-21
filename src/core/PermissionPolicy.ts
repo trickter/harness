@@ -1,4 +1,4 @@
-import type { GoalContract } from "./GoalContract.js";
+import { DEFAULT_RISK_POLICY, type GoalContract } from "./GoalContract.js";
 
 export interface ActionRequest {
   operation: string;
@@ -45,11 +45,52 @@ function matchesAny(value: string, patterns: string[]): boolean {
   return patterns.some((pattern) => matchesPattern(value, pattern));
 }
 
+export const PROFILE_RISK_POLICIES = {
+  sandbox: {
+    destructiveActions: "allowed_in_sandbox",
+    externalNetwork: "forbidden",
+    secretAccess: "forbidden"
+  },
+  workspace: {
+    destructiveActions: "require_explicit_approval",
+    externalNetwork: "restricted",
+    secretAccess: "forbidden"
+  },
+  production: {
+    destructiveActions: "forbidden",
+    externalNetwork: "forbidden",
+    secretAccess: "restricted"
+  }
+} as const;
+
 export class PermissionPolicy {
   readonly contract: GoalContract;
+  readonly resolvedRiskPolicy: {
+    destructiveActions: "forbidden" | "require_explicit_approval" | "allowed_in_sandbox";
+    externalNetwork: "forbidden" | "restricted" | "allowed";
+    secretAccess: "forbidden" | "restricted";
+  };
 
   constructor(contract: GoalContract) {
     this.contract = contract;
+    
+    const profile = contract.riskPolicy.profile;
+    const base = profile ? PROFILE_RISK_POLICIES[profile] : undefined;
+
+    this.resolvedRiskPolicy = {
+      destructiveActions:
+        contract.riskPolicy.destructiveActions !== DEFAULT_RISK_POLICY.destructiveActions
+          ? contract.riskPolicy.destructiveActions
+          : (base?.destructiveActions ?? DEFAULT_RISK_POLICY.destructiveActions),
+      externalNetwork:
+        contract.riskPolicy.externalNetwork !== DEFAULT_RISK_POLICY.externalNetwork
+          ? contract.riskPolicy.externalNetwork
+          : (base?.externalNetwork ?? DEFAULT_RISK_POLICY.externalNetwork),
+      secretAccess:
+        contract.riskPolicy.secretAccess !== DEFAULT_RISK_POLICY.secretAccess
+          ? contract.riskPolicy.secretAccess
+          : (base?.secretAccess ?? DEFAULT_RISK_POLICY.secretAccess)
+    };
   }
 
   evaluate(action: ActionRequest): PermissionDecision {
@@ -75,7 +116,7 @@ export class PermissionPolicy {
     }
 
     if (action.destructive) {
-      const destructivePolicy = this.contract.riskPolicy.destructiveActions;
+      const destructivePolicy = this.resolvedRiskPolicy.destructiveActions;
 
       if (destructivePolicy === "forbidden") {
         violations.push("destructive actions are forbidden");
@@ -88,10 +129,10 @@ export class PermissionPolicy {
     }
 
     if (action.externalNetwork) {
-      if (this.contract.riskPolicy.externalNetwork === "forbidden") {
+      if (this.resolvedRiskPolicy.externalNetwork === "forbidden") {
         violations.push("external network access is forbidden");
       } else if (
-        this.contract.riskPolicy.externalNetwork === "restricted" &&
+        this.resolvedRiskPolicy.externalNetwork === "restricted" &&
         !action.approvalGranted
       ) {
         requiresHuman = true;
@@ -100,7 +141,7 @@ export class PermissionPolicy {
     }
 
     if (action.secretAccess) {
-      if (this.contract.riskPolicy.secretAccess === "forbidden") {
+      if (this.resolvedRiskPolicy.secretAccess === "forbidden") {
         violations.push("secret access is forbidden");
       } else if (!action.approvalGranted) {
         requiresHuman = true;

@@ -20,13 +20,14 @@ Do not use `harness codex-run`, `CodexCliAdapter`, or any code path that launche
    - verification: `skipped`
    - include `--selected-strategy-ready` or `--alternative-strategy-selected` only when the next action is bounded and permission-compatible.
 6. Execute exactly one bounded action directly in the current Codex session.
-7. Record the action with `harness turn`:
+7. Audit real workspace changes with `harness audit --run <runDir> [--cwd <repo>]`. If audit fails, stop and ask the user unless the out-of-scope change is intentionally approved.
+8. Record the action with `harness turn`:
    - phase: `CONVERGE_EXECUTE` or `REPAIR`
    - verification: `skipped`
    - include changed artifacts, commands run, new information, and `--action-completed` or `--repair-completed`.
-8. Verify with `harness verify --run <runDir> [--cwd <dir>]`.
-9. Inspect status with `harness status --run <runDir>` and continue from `phase`.
-10. Stop only when the status reaches `FINISH`, `NEED_HUMAN`, or `ABORT`.
+9. Verify with `harness verify --run <runDir> [--cwd <dir>]`.
+10. Inspect status with `harness status --run <runDir>` and continue from `phase`.
+11. Stop only when the status reaches `FINISH`, `NEED_HUMAN`, or `ABORT`.
 
 ## Command Templates
 
@@ -41,12 +42,14 @@ harness turn --run .harness/runs/<goal-id> --phase DIVERGE_PLAN --action "Plan n
 Execution:
 
 ```bash
+harness audit --run .harness/runs/<goal-id>
 harness turn --run .harness/runs/<goal-id> --phase CONVERGE_EXECUTE --action "Implement one bounded change" --verification skipped --changed src/file.ts --info "..." --action-completed --objective-delta 0.1
 ```
 
 Repair:
 
 ```bash
+harness audit --run .harness/runs/<goal-id>
 harness turn --run .harness/runs/<goal-id> --phase REPAIR --action "Repair the current verification failure" --verification skipped --changed src/file.ts --info "..." --repair-completed --objective-delta 0.1
 ```
 
@@ -60,6 +63,7 @@ harness resume --run .harness/runs/<goal-id>
 ## Rules
 
 - Keep every action small enough to verify immediately.
+- Treat `harness audit` as authoritative for actual changed files; do not rely only on self-reported `--changed` paths.
 - Run `harness run --dry-policy` before high-risk operations or when scope is unclear.
 - If `nextPhase` is `NEED_HUMAN`, stop and ask the user.
 - If `nextPhase` is `ESCAPE_DIVERGE`, summarize the failed path, generate at least three different hypotheses, choose a materially different strategy, then record an escape planning turn.

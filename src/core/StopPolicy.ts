@@ -21,7 +21,7 @@ function changedArtifactCount(entries: RunLedgerEntry[]): number {
 
 export class StopPolicy {
   evaluate(contract: GoalContract, snapshot: RuntimeBudgetSnapshot): StopDecision {
-    if (snapshot.iteration >= contract.budget.maxIterations) {
+    if (snapshot.iteration > contract.budget.maxIterations) {
       return { stop: true, reason: "maximum iteration budget reached" };
     }
 

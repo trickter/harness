@@ -47,6 +47,10 @@ export class StateMachine {
       return toTransition(from, from, `${from} is terminal`, signals.metrics);
     }
 
+    if (from === "VERIFY" && signals.successCriteriaMet && signals.verificationResult === "pass") {
+      return toTransition(from, "FINISH", "success criteria and verification passed", signals.metrics);
+    }
+
     if (signals.stopReason) {
       return toTransition(from, "ABORT", signals.stopReason, signals.metrics);
     }
@@ -65,10 +69,6 @@ export class StateMachine {
           ? toTransition(from, "VERIFY", "supervised action completed", signals.metrics)
           : toTransition(from, from, "worker action is still pending", signals.metrics);
       case "VERIFY":
-        if (signals.successCriteriaMet && signals.verificationResult === "pass") {
-          return toTransition(from, "FINISH", "success criteria and verification passed", signals.metrics);
-        }
-
         if (
           signals.metrics.repeatedErrorCount >= contract.budget.maxSameError ||
           signals.metrics.noProgressCount >= contract.budget.maxNoProgress

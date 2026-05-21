@@ -42,3 +42,25 @@ test("verify enters escape divergence once repeated error budget is consumed", (
 
   assert.equal(transition.to, "ESCAPE_DIVERGE");
 });
+
+test("verify finishes a passing contract before applying a budget stop reason", () => {
+  const contract = parseGoalContract({
+    goal: {
+      id: "finish",
+      name: "Finish",
+      objective: "Finish after verification."
+    }
+  });
+  const transition = new StateMachine().transition("VERIFY", contract, {
+    metrics: {
+      ...metrics,
+      repeatedErrorCount: 0
+    },
+    verificationResult: "pass",
+    successCriteriaMet: true,
+    stopReason: "maximum iteration budget reached",
+    escapeRounds: 0
+  });
+
+  assert.equal(transition.to, "FINISH");
+});

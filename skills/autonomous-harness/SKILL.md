@@ -13,14 +13,14 @@ Do not use `harness codex-run`, `CodexCliAdapter`, or any code path that launche
 
 1. Build first when source changed: `npm run build`.
 2. Create or load a Goal Contract. Prefer `harness init-contract` for a draft, then edit the YAML only when the user has asked for implementation.
-3. Start a run directory with `harness start --contract <goal.yaml>`. Use the returned `runDir` for the rest of the goal.
+3. Start a run directory with `harness start --contract <goal.yaml> [--cwd <repo>]`. This captures the `baseline` snapshot. Use the returned `runDir` for the rest of the goal.
 4. Use `harness status --run <runDir>` before deciding the next step, and `harness resume --run <runDir>` after interruptions.
 5. Record planning before execution:
    - phase: `DIVERGE_PLAN` or `ESCAPE_DIVERGE`
    - verification: `skipped`
    - include `--selected-strategy-ready` or `--alternative-strategy-selected` only when the next action is bounded and permission-compatible.
 6. Execute exactly one bounded action directly in the current Codex session.
-7. Audit real workspace changes with `harness audit --run <runDir> [--cwd <repo>]`. If audit fails, stop and ask the user unless the out-of-scope change is intentionally approved.
+7. Audit real workspace changes with `harness audit --run <runDir> --since baseline [--cwd <repo>]`. If audit fails, stop and ask the user unless the out-of-scope change is intentionally approved.
 8. Record the action with `harness turn`:
    - phase: `CONVERGE_EXECUTE` or `REPAIR`
    - verification: `skipped`
@@ -42,14 +42,14 @@ harness turn --run .harness/runs/<goal-id> --phase DIVERGE_PLAN --action "Plan n
 Execution:
 
 ```bash
-harness audit --run .harness/runs/<goal-id>
+harness audit --run .harness/runs/<goal-id> --since baseline
 harness turn --run .harness/runs/<goal-id> --phase CONVERGE_EXECUTE --action "Implement one bounded change" --verification skipped --changed src/file.ts --info "..." --action-completed --objective-delta 0.1
 ```
 
 Repair:
 
 ```bash
-harness audit --run .harness/runs/<goal-id>
+harness audit --run .harness/runs/<goal-id> --since baseline
 harness turn --run .harness/runs/<goal-id> --phase REPAIR --action "Repair the current verification failure" --verification skipped --changed src/file.ts --info "..." --repair-completed --objective-delta 0.1
 ```
 

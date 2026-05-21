@@ -27,7 +27,8 @@ Do not use `harness codex-run`, `CodexCliAdapter`, or any code path that launche
    - include changed artifacts, commands run, new information, and `--action-completed` or `--repair-completed`.
 9. Verify with `harness verify --run <runDir> [--cwd <dir>]`.
 10. Inspect status with `harness status --run <runDir>` and continue from `phase`.
-11. Stop only when the status reaches `FINISH`, `NEED_HUMAN`, or `ABORT`.
+11. When a run fails, inspect `harness recover --run <runDir> [--cwd <repo>]` before deciding whether to apply recovery with `--apply`.
+12. Stop only when the status reaches `FINISH`, `NEED_HUMAN`, or `ABORT`.
 
 ## Command Templates
 
@@ -60,6 +61,13 @@ harness verify --run .harness/runs/<goal-id>
 harness resume --run .harness/runs/<goal-id>
 ```
 
+Recovery:
+
+```bash
+harness recover --run .harness/runs/<goal-id> --cwd .
+harness recover --run .harness/runs/<goal-id> --cwd . --apply
+```
+
 ## Rules
 
 - Keep every action small enough to verify immediately.
@@ -68,3 +76,4 @@ harness resume --run .harness/runs/<goal-id>
 - If `nextPhase` is `NEED_HUMAN`, stop and ask the user.
 - If `nextPhase` is `ESCAPE_DIVERGE`, summarize the failed path, generate at least three different hypotheses, choose a materially different strategy, then record an escape planning turn.
 - If verification repeatedly fails with the same signature, do not keep patching the same hypothesis.
+- Treat `harness recover` without `--apply` as the recovery report; only use `--apply` when its chosen healthy point and rollback list are acceptable.

@@ -8,6 +8,15 @@ export interface RecoveryReport {
   humanReport: string;
 }
 
+export interface FailurePathEntry {
+  iteration: number;
+  phase: string;
+  action: string;
+  verificationResult: string;
+  nextPhase: string;
+  errorSignature?: string;
+}
+
 export class RecoveryPolicy {
   buildAbortReport(contract: GoalContract, ledger: RunLedgerEntry[], reason: string): RecoveryReport {
     const failedPath = ledger
@@ -23,5 +32,23 @@ export class RecoveryPolicy {
         : ["No changed artifacts were recorded."],
       humanReport: `Harness aborted for ${contract.goal.name}: ${reason}`
     };
+  }
+
+  failurePathSinceHealthy(ledger: RunLedgerEntry[], healthyIteration?: number): FailurePathEntry[] {
+    const latestPassedIteration =
+      healthyIteration ??
+      [...ledger].reverse().find((entry) => entry.verificationResult === "pass")?.iteration ??
+      0;
+
+    return ledger
+      .filter((entry) => entry.iteration > latestPassedIteration)
+      .map((entry) => ({
+        iteration: entry.iteration,
+        phase: entry.phase,
+        action: entry.action,
+        verificationResult: entry.verificationResult,
+        nextPhase: entry.nextPhase,
+        errorSignature: entry.errorSignature
+      }));
   }
 }

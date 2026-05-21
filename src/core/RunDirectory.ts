@@ -168,7 +168,7 @@ function commandForPhase(status: HarnessRunStatus): HarnessRunResume {
   return {
     status,
     recommendedNextStep: `Run is terminal at ${status.phase}.`,
-    commands: []
+    commands: status.phase === "ABORT" ? [`harness recover ${base}`] : []
   };
 }
 

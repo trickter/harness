@@ -25,6 +25,7 @@ import {
   writeRunStatus
 } from "../core/RunDirectory.js";
 import { JsonlRunLedger } from "../core/RunLedger.js";
+import { recoverHarnessRun } from "../core/RunRecovery.js";
 import { captureHarnessSnapshot, changedArtifactsSinceSnapshot } from "../core/RunSnapshot.js";
 import { auditChangedArtifacts, auditGitScope, scanGitChangedArtifacts } from "../core/ScopeAudit.js";
 import { VerificationRunner } from "../core/VerificationRunner.js";
@@ -104,6 +105,7 @@ function printUsage(): void {
   harness snapshot --run <dir> --name <name> [--cwd <dir>]
   harness diff --run <dir> [--cwd <dir>]
   harness audit --run <dir> [--cwd <dir>] [--since <snapshot>]
+  harness recover --run <dir> [--cwd <dir>] [--from <snapshot>] [--apply]
   harness turn --run <dir> --phase <phase> --action <text> --verification <result> [--changed <path>] [--command <cmd>] [--info <text>] [--error-signature <sig>]
   harness verify --run <dir> [--cwd <dir>]
   harness run --dry-policy --contract <file> --operation <operation> [--artifact <path>] [--destructive] [--external-network] [--secret-access] [--approved]
@@ -286,9 +288,20 @@ async function verifyContract(args: string[]): Promise<void> {
   const permissions = new PermissionPolicy(contract);
   const loop = new LoopController(contract, ledger, { permissions });
   const shell = new ShellAdapter(permissions);
-  const result = await new VerificationRunner(contract, loop, shell).run({ cwd: flagValue(args, "--cwd") });
+  const cwd = flagValue(args, "--cwd") ?? process.cwd();
+  const result = await new VerificationRunner(contract, loop, shell).run({ cwd });
   const status = resolved.runDir ? await writeRunStatus(runPaths(resolved.runDir)) : undefined;
   const statusPath = resolved.runDir ? runPaths(resolved.runDir).statusPath : undefined;
+  const healthySnapshot =
+    resolved.runDir && result.verificationResult === "pass"
+      ? await captureHarnessSnapshot({
+          paths: runPaths(resolved.runDir),
+          cwd,
+          name: "healthy",
+          ledgerIteration: result.turn.entry.iteration,
+          verificationResult: result.verificationResult
+        })
+      : undefined;
   const failedCommands = result.commands.filter((command) => command.exitCode !== 0);
 
   console.log(
@@ -298,6 +311,7 @@ async function verifyContract(args: string[]): Promise<void> {
         ledger: resolved.ledgerPath,
         runDir: resolved.runDir,
         statusPath: status ? statusPath : undefined,
+        healthySnapshot: healthySnapshot?.name,
         verificationResult: result.verificationResult,
         nextPhase: result.turn.transition.to,
         passedCommands: result.commands.length - failedCommands.length,
@@ -479,6 +493,28 @@ async function auditRun(args: string[]): Promise<void> {
   }
 }
 
+async function recoverRun(args: string[]): Promise<void> {
+  const paths = runPaths(requireFlag(args, "--run"));
+  await ensureRunDirectories(paths);
+
+  const contract = await loadGoalContract(paths.contractPath);
+  const ledger = await new JsonlRunLedger(paths.ledgerPath).readAll();
+  const plan = await recoverHarnessRun({
+    paths,
+    contract,
+    ledger,
+    cwd: flagValue(args, "--cwd") ?? process.cwd(),
+    from: flagValue(args, "--from"),
+    apply: hasFlag(args, "--apply")
+  });
+
+  console.log(JSON.stringify(plan, null, 2));
+
+  if (plan.apply && !plan.scopeAudit.allowed) {
+    process.exitCode = 1;
+  }
+}
+
 async function inspectLedger(path: string): Promise<void> {
   const entries = await new JsonlRunLedger(path).readAll();
   const latest = entries.at(-1);
@@ -544,6 +580,11 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "audit") {
     await auditRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (command === "recover") {
+    await recoverRun([subcommand, ...rest].filter((value): value is string => Boolean(value)));
     return;
   }
 

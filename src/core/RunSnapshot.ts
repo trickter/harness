@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   captureGitArtifactSnapshots,
@@ -13,6 +13,15 @@ export interface HarnessSnapshot {
   cwd: string;
   capturedAt: string;
   artifacts: GitArtifactSnapshot[];
+  workspaceArtifacts: SnapshotWorkspaceArtifact[];
+  ledgerIteration?: number;
+  verificationResult?: "pass" | "fail" | "partial" | "skipped";
+}
+
+export interface SnapshotWorkspaceArtifact {
+  path: string;
+  exists: boolean;
+  contentBase64?: string;
 }
 
 export function snapshotPath(paths: HarnessRunPaths, name: string): string {
@@ -23,21 +32,52 @@ export async function captureHarnessSnapshot(input: {
   paths: HarnessRunPaths;
   cwd: string;
   name: string;
+  ledgerIteration?: number;
+  verificationResult?: "pass" | "fail" | "partial" | "skipped";
 }): Promise<HarnessSnapshot> {
+  const artifacts = await captureGitArtifactSnapshots(input.cwd);
   const snapshot: HarnessSnapshot = {
     name: input.name,
     cwd: input.cwd,
     capturedAt: new Date().toISOString(),
-    artifacts: await captureGitArtifactSnapshots(input.cwd)
+    artifacts,
+    workspaceArtifacts: await Promise.all(
+      artifacts.map(async (artifact) => {
+        try {
+          return {
+            path: artifact.path,
+            exists: true,
+            contentBase64: (await readFile(join(input.cwd, artifact.path))).toString("base64")
+          };
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            return {
+              path: artifact.path,
+              exists: false
+            };
+          }
+
+          throw error;
+        }
+      })
+    ),
+    ledgerIteration: input.ledgerIteration,
+    verificationResult: input.verificationResult
   };
 
+  await mkdir(input.paths.snapshotsDir, { recursive: true });
   await writeFile(snapshotPath(input.paths, input.name), `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
 
   return snapshot;
 }
 
 export async function readHarnessSnapshot(paths: HarnessRunPaths, name: string): Promise<HarnessSnapshot> {
-  return JSON.parse(await readFile(snapshotPath(paths, name), "utf8")) as HarnessSnapshot;
+  const snapshot = JSON.parse(await readFile(snapshotPath(paths, name), "utf8")) as HarnessSnapshot;
+
+  return {
+    ...snapshot,
+    workspaceArtifacts: snapshot.workspaceArtifacts ?? []
+  };
 }
 
 export async function changedArtifactsSinceSnapshot(input: {

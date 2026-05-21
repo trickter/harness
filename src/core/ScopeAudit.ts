@@ -47,7 +47,7 @@ function matchesAny(value: string, patterns: string[]): boolean {
   return patterns.some((pattern) => matchesArtifactPattern(value, pattern));
 }
 
-function runGit(args: string[], cwd: string): Promise<string> {
+export function runGit(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",

@@ -49,3 +49,4 @@ export * from "./scenarios/DataAnalysisScenario.js";
 export * from "./scenarios/RefactorScenario.js";
 export * from "./scenarios/AutoModelingScenario.js";
 export * from "./scenarios/DailyWorkScenario.js";
+export * from "./scenarios/ScenarioRunner.js";

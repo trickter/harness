@@ -39,6 +39,7 @@ import { writeTurnDiffArtifact } from "../core/RunObservability.js";
 import { PHASES, type Phase } from "../core/StateMachine.js";
 import { VERIFICATION_RESULTS, type VerificationResult } from "../core/RunLedger.js";
 import { validateLocalSkills, writeSkillValidationReport } from "../skills/SkillValidation.js";
+import { BUILTIN_SCENARIO_NAMES, BuiltinScenarioRunner } from "../scenarios/ScenarioRunner.js";
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
@@ -122,6 +123,7 @@ function printUsage(): void {
   harness daemon documentation --contract <file> --changed <path> [--changed <path>...] [--ledger <ledger.jsonl>]
   harness daemon dispatch --run <dir> --trigger <on_goal_finished|on_file_change|scheduled> [--cwd <dir>] [--changed <path>...] [--scheduled-at <iso>]
   harness daemon serve --run <dir> [--cwd <dir>] [--interval-ms <n>] [--no-watch]
+  harness scenario inspect --scenario <refactor|auto-modeling|daily-work> --path <path> [--path <path>...] [--cwd <dir>]
   harness ledger inspect <ledger.jsonl>`);
 }
 
@@ -681,6 +683,38 @@ async function validateSkills(args: string[]): Promise<void> {
   }
 }
 
+async function inspectScenario(args: string[]): Promise<void> {
+  const paths = flagValues(args, "--path");
+
+  if (paths.length === 0) {
+    throw new Error("scenario inspect requires at least one --path value");
+  }
+
+  const result = await new BuiltinScenarioRunner(requireEnum(args, "--scenario", BUILTIN_SCENARIO_NAMES)).run({
+    cwd: flagValue(args, "--cwd") ?? process.cwd(),
+    paths
+  });
+
+  console.log(
+    JSON.stringify(
+      {
+        scenario: result.scenario,
+        goalId: result.contract.goal.id,
+        artifacts: result.artifacts.listArtifacts().length,
+        edges: result.artifacts.listEdges().length,
+        verification: result.verification,
+        daemons: result.daemons
+      },
+      null,
+      2
+    )
+  );
+
+  if (!result.verification.passed) {
+    process.exitCode = 1;
+  }
+}
+
 async function main(args: string[]): Promise<void> {
   const [command, subcommand, ...rest] = args;
 
@@ -736,6 +770,11 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "skills" && subcommand === "validate") {
     await validateSkills(rest);
+    return;
+  }
+
+  if (command === "scenario" && subcommand === "inspect") {
+    await inspectScenario(rest);
     return;
   }
 

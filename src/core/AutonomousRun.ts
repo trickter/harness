@@ -9,6 +9,7 @@ import type {
 } from "../agents/AutonomousTypes.js";
 import type { GoalContract } from "./GoalContract.js";
 import { LoopController, type HarnessContext, type LoopTurnResult } from "./LoopController.js";
+import type { HarnessRunPaths } from "./RunDirectory.js";
 import type { RunLedgerEntry } from "./RunLedger.js";
 import type { Phase } from "./StateMachine.js";
 import type { VerificationRunResult } from "./VerificationRunner.js";
@@ -23,6 +24,7 @@ export interface AutonomousRunResult {
 
 export interface AutonomousRunOptions {
   cwd?: string;
+  paths?: HarnessRunPaths;
 }
 
 function isTerminal(phase: Phase): boolean {

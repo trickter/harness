@@ -35,6 +35,7 @@ import { recoverHarnessRun } from "../core/RunRecovery.js";
 import { captureHarnessSnapshot, changedArtifactsSinceSnapshot } from "../core/RunSnapshot.js";
 import { auditChangedArtifacts, auditGitScope, scanGitChangedArtifacts } from "../core/ScopeAudit.js";
 import { VerificationRunner } from "../core/VerificationRunner.js";
+import { writeTurnDiffArtifact } from "../core/RunObservability.js";
 import { PHASES, type Phase } from "../core/StateMachine.js";
 import { VERIFICATION_RESULTS, type VerificationResult } from "../core/RunLedger.js";
 import { validateLocalSkills, writeSkillValidationReport } from "../skills/SkillValidation.js";
@@ -217,7 +218,7 @@ async function runContract(args: string[]): Promise<void> {
     worker,
     verifier
   );
-  const result = await runner.run({ cwd });
+  const result = await runner.run({ cwd, paths: resolved.runDir ? runPaths(resolved.runDir) : undefined });
   const latest = result.ledger.at(-1);
 
   console.log(
@@ -251,6 +252,7 @@ async function recordTurn(args: string[]): Promise<void> {
   const permissions = new PermissionPolicy(contract);
   const loop = new LoopController(contract, ledger, { permissions });
   const changedArtifacts = flagValues(args, "--changed");
+  const cwd = flagValue(args, "--cwd") ?? process.cwd();
   const result = await loop.recordTurn({
     phase: requireEnum(args, "--phase", PHASES) as Phase,
     action: requireFlag(args, "--action"),
@@ -275,13 +277,15 @@ async function recordTurn(args: string[]): Promise<void> {
     humanApproved: hasFlag(args, "--human-approved"),
     humanDenied: hasFlag(args, "--human-denied")
   });
-  const status = resolved.runDir ? await writeRunStatus(runPaths(resolved.runDir)) : undefined;
-  const statusPath = resolved.runDir ? runPaths(resolved.runDir).statusPath : undefined;
+  const paths = resolved.runDir ? runPaths(resolved.runDir) : undefined;
+  const turnDiff = paths ? await writeTurnDiffArtifact({ paths, cwd, entry: result.entry }) : undefined;
+  const status = paths ? await writeRunStatus(paths) : undefined;
+  const statusPath = paths?.statusPath;
   const daemonDispatch =
-    resolved.runDir && changedArtifacts.length > 0
+    paths && changedArtifacts.length > 0
       ? await dispatchRunDaemons({
-          paths: runPaths(resolved.runDir),
-          cwd: flagValue(args, "--cwd") ?? process.cwd(),
+          paths,
+          cwd,
           trigger: "on_file_change",
           changedArtifacts
         })
@@ -300,6 +304,7 @@ async function recordTurn(args: string[]): Promise<void> {
         stopReason: result.stopDecision.reason,
         runDir: resolved.runDir,
         statusPath: status ? statusPath : undefined,
+        turnDiff: turnDiff?.path,
         daemonDispatch
       },
       null,
@@ -320,13 +325,15 @@ async function verifyContract(args: string[]): Promise<void> {
   const loop = new LoopController(contract, ledger, { permissions });
   const shell = new ShellAdapter(permissions);
   const cwd = flagValue(args, "--cwd") ?? process.cwd();
-  const result = await new VerificationRunner(contract, loop, shell).run({ cwd });
-  const status = resolved.runDir ? await writeRunStatus(runPaths(resolved.runDir)) : undefined;
-  const statusPath = resolved.runDir ? runPaths(resolved.runDir).statusPath : undefined;
+  const paths = resolved.runDir ? runPaths(resolved.runDir) : undefined;
+  const result = await new VerificationRunner(contract, loop, shell).run({ cwd, paths });
+  const turnDiff = paths ? await writeTurnDiffArtifact({ paths, cwd, entry: result.turn.entry }) : undefined;
+  const status = paths ? await writeRunStatus(paths) : undefined;
+  const statusPath = paths?.statusPath;
   const healthySnapshot =
-    resolved.runDir && result.verificationResult === "pass"
+    paths && result.verificationResult === "pass"
       ? await captureHarnessSnapshot({
-          paths: runPaths(resolved.runDir),
+          paths,
           cwd,
           name: "healthy",
           ledgerIteration: result.turn.entry.iteration,
@@ -335,14 +342,14 @@ async function verifyContract(args: string[]): Promise<void> {
       : undefined;
   const failedCommands = result.commands.filter((command) => command.exitCode !== 0);
   const daemonDispatch =
-    resolved.runDir && result.turn.transition.to === "FINISH"
+    paths && result.turn.transition.to === "FINISH"
       ? await dispatchRunDaemons({
-          paths: runPaths(resolved.runDir),
+          paths,
           cwd,
           trigger: "on_goal_finished",
           changedArtifacts: (
             await changedArtifactsSinceSnapshot({
-              paths: runPaths(resolved.runDir),
+              paths,
               cwd,
               since: "baseline"
             })
@@ -357,6 +364,7 @@ async function verifyContract(args: string[]): Promise<void> {
         ledger: resolved.ledgerPath,
         runDir: resolved.runDir,
         statusPath: status ? statusPath : undefined,
+        turnDiff: turnDiff?.path,
         healthySnapshot: healthySnapshot?.name,
         verificationResult: result.verificationResult,
         nextPhase: result.turn.transition.to,

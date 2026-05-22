@@ -1,4 +1,5 @@
 import type { HarnessContext } from "../core/LoopController.js";
+import type { HarnessRunPaths } from "../core/RunDirectory.js";
 import type { VerificationRunResult } from "../core/VerificationRunner.js";
 
 export interface AutonomousAction {
@@ -44,5 +45,5 @@ export interface AutonomousWorker {
 }
 
 export interface AutonomousVerifier {
-  verify(options: { cwd?: string }): Promise<VerificationRunResult>;
+  verify(options: { cwd?: string; paths?: HarnessRunPaths }): Promise<VerificationRunResult>;
 }

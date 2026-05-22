@@ -93,6 +93,7 @@ budget:
   await writeFile(join(repo, "src", "app.ts"), "broken\n", "utf8");
   await writeFile(join(repo, "src", "bad.ts"), "export const bad = true;\n", "utf8");
   await execAllowFailure(process.execPath, [cli(), "verify", "--run", runDir, "--cwd", repo]);
+  assert.match(await readFile(join(runDir, "reports", "failure-timeline.json"), "utf8"), /fail/);
 
   const report = JSON.parse(
     (await execFileAsync(process.execPath, [cli(), "recover", "--run", runDir, "--cwd", repo])).stdout

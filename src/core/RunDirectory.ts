@@ -36,6 +36,20 @@ export interface HarnessRunResume {
   commands: string[];
 }
 
+export interface HarnessFailureTimelineEntry {
+  iteration: number;
+  phase: Phase;
+  nextPhase: Phase;
+  action: string;
+  verificationResult: string;
+  progressSignal: string;
+  errorSignature?: string;
+  changedArtifacts: string[];
+  commandsRun: string[];
+  timestamp: string;
+  failure: boolean;
+}
+
 export function runPaths(runDir: string): HarnessRunPaths {
   const resolved = resolve(runDir);
 
@@ -111,6 +125,7 @@ export async function writeRunStatus(paths: HarnessRunPaths): Promise<HarnessRun
   };
 
   await writeFile(paths.statusPath, `${JSON.stringify(status, null, 2)}\n`, "utf8");
+  await writeRunReports(paths, status, entries);
 
   return status;
 }
@@ -196,4 +211,69 @@ export function summarizeLedger(entries: RunLedgerEntry[]): {
     phases: countBy("phase"),
     verification: countBy("verificationResult")
   };
+}
+
+function isTerminal(phase: Phase): boolean {
+  return phase === "FINISH" || phase === "NEED_HUMAN" || phase === "ABORT";
+}
+
+function failureTimeline(entries: RunLedgerEntry[]): {
+  failures: number;
+  entries: HarnessFailureTimelineEntry[];
+} {
+  const timeline = entries.map<HarnessFailureTimelineEntry>((entry) => {
+    const failure =
+      entry.verificationResult === "fail" ||
+      entry.verificationResult === "partial" ||
+      Boolean(entry.errorSignature) ||
+      entry.progressSignal === "negative" ||
+      entry.nextPhase === "REPAIR" ||
+      entry.nextPhase === "ABORT";
+
+    return {
+      iteration: entry.iteration,
+      phase: entry.phase,
+      nextPhase: entry.nextPhase,
+      action: entry.action,
+      verificationResult: entry.verificationResult,
+      progressSignal: entry.progressSignal,
+      errorSignature: entry.errorSignature,
+      changedArtifacts: entry.changedArtifacts,
+      commandsRun: entry.commandsRun,
+      timestamp: entry.timestamp,
+      failure
+    };
+  });
+
+  return {
+    failures: timeline.filter((entry) => entry.failure).length,
+    entries: timeline
+  };
+}
+
+async function writeRunReports(paths: HarnessRunPaths, status: HarnessRunStatus, entries: RunLedgerEntry[]): Promise<void> {
+  const timeline = failureTimeline(entries);
+
+  await mkdir(paths.reportsDir, { recursive: true });
+  await writeFile(join(paths.reportsDir, "failure-timeline.json"), `${JSON.stringify(timeline, null, 2)}\n`, "utf8");
+
+  if (!isTerminal(status.phase)) {
+    return;
+  }
+
+  await writeFile(
+    join(paths.reportsDir, "final-summary.json"),
+    `${JSON.stringify(
+      {
+        ...status,
+        ledger: summarizeLedger(entries),
+        failures: timeline.failures,
+        failureTimeline: join(paths.reportsDir, "failure-timeline.json"),
+        verificationDir: paths.verificationDir
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
 }

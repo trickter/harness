@@ -50,7 +50,7 @@ test("run directory start, status, resume, turn, and verify use canonical paths"
   const runDir = join(directory, ".harness", "runs", "run-dir");
 
   await execFileAsync("git", ["init"], { cwd: directory });
-  await writeFile(join(directory, "pass.cjs"), "process.exit(0);", "utf8");
+  await writeFile(join(directory, "pass.cjs"), "process.stdout.write('verification-pass');", "utf8");
 
   const start = JSON.parse(
     (
@@ -96,10 +96,11 @@ test("run directory start, status, resume, turn, and verify use canonical paths"
         "--selected-strategy-ready"
       ])
     ).stdout
-  ) as { nextPhase: string; statusPath: string };
+  ) as { nextPhase: string; statusPath: string; turnDiff: string };
 
   assert.equal(turn.nextPhase, "CONVERGE_EXECUTE");
   assert.equal(turn.statusPath, join(runDir, "status.json"));
+  assert.match(await readFile(turn.turnDiff, "utf8"), /Plan bounded verification/);
 
   const status = JSON.parse(
     (await execFileAsync(process.execPath, [cli(), "status", "--run", runDir])).stdout
@@ -118,11 +119,19 @@ test("run directory start, status, resume, turn, and verify use canonical paths"
 
   const verify = JSON.parse(
     (await execFileAsync(process.execPath, [cli(), "verify", "--run", runDir, "--cwd", directory])).stdout
-  ) as { verificationResult: string; nextPhase: string; statusPath: string };
+  ) as { verificationResult: string; nextPhase: string; statusPath: string; turnDiff: string };
 
   assert.equal(verify.verificationResult, "pass");
   assert.equal(verify.nextPhase, "FINISH");
   assert.equal(verify.statusPath, join(runDir, "status.json"));
+  assert.match(await readFile(verify.turnDiff, "utf8"), /Run 1 verification command/);
+  assert.equal(
+    await readFile(join(runDir, "verification", "turn-0002", "command-001.stdout.log"), "utf8"),
+    "verification-pass"
+  );
+  assert.match(await readFile(join(runDir, "verification", "turn-0002", "summary.json"), "utf8"), /pass/);
+  assert.match(await readFile(join(runDir, "reports", "failure-timeline.json"), "utf8"), /Run 1 verification/);
+  assert.match(await readFile(join(runDir, "reports", "final-summary.json"), "utf8"), /FINISH/);
 
   assert.match(await readFile(join(runDir, "status.json"), "utf8"), /FINISH/);
 });

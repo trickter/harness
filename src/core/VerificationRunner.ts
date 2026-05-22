@@ -1,6 +1,8 @@
 import type { ShellAdapter, ShellRunResult } from "../adapters/ShellAdapter.js";
 import type { GoalContract } from "./GoalContract.js";
 import { LoopController, type LoopTurnResult } from "./LoopController.js";
+import { writeVerificationRunArtifacts } from "./RunObservability.js";
+import type { HarnessRunPaths } from "./RunDirectory.js";
 import type { VerificationResult } from "./RunLedger.js";
 import { VerificationParser, type ParsedVerificationOutput } from "./VerificationParser.js";
 
@@ -69,7 +71,7 @@ export class VerificationRunner {
     this.shell = shell;
   }
 
-  async run(options: { cwd?: string } = {}): Promise<VerificationRunResult> {
+  async run(options: { cwd?: string; paths?: HarnessRunPaths } = {}): Promise<VerificationRunResult> {
     const commands: VerificationCommandResult[] = [];
 
     for (const command of this.contract.verification.commands) {
@@ -109,6 +111,12 @@ export class VerificationRunner {
       successCriteriaMet: verificationResult === "pass"
     });
 
-    return { commands, turn, verificationResult };
+    const result = { commands, turn, verificationResult };
+
+    if (options.paths) {
+      await writeVerificationRunArtifacts(options.paths, result);
+    }
+
+    return result;
   }
 }

@@ -1,4 +1,5 @@
 import type { VerificationRunResult, VerificationRunner } from "../core/VerificationRunner.js";
+import type { HarnessRunPaths } from "../core/RunDirectory.js";
 import type { AutonomousVerifier } from "./AutonomousTypes.js";
 
 export class ContractVerifierAgent implements AutonomousVerifier {
@@ -8,7 +9,7 @@ export class ContractVerifierAgent implements AutonomousVerifier {
     this.runner = runner;
   }
 
-  async verify(options: { cwd?: string } = {}): Promise<VerificationRunResult> {
+  async verify(options: { cwd?: string; paths?: HarnessRunPaths } = {}): Promise<VerificationRunResult> {
     return this.runner.run(options);
   }
 }

@@ -198,7 +198,7 @@ async function runContract(args: string[]): Promise<void> {
   const permissions = new PermissionPolicy(contract);
   const loop = new LoopController(contract, ledger, { permissions });
   const cwd = flagValue(args, "--cwd") ?? process.cwd();
-  const shell = new ShellAdapter(permissions);
+  const shell = new ShellAdapter(permissions, { workspaceRoot: cwd });
   const codex = new CodexCliAdapter({
     binary: flagValue(args, "--codex-bin"),
     model: flagValue(args, "--model")
@@ -323,8 +323,8 @@ async function verifyContract(args: string[]): Promise<void> {
   const ledger = new JsonlRunLedger(resolved.ledgerPath);
   const permissions = new PermissionPolicy(contract);
   const loop = new LoopController(contract, ledger, { permissions });
-  const shell = new ShellAdapter(permissions);
   const cwd = flagValue(args, "--cwd") ?? process.cwd();
+  const shell = new ShellAdapter(permissions, { workspaceRoot: cwd });
   const paths = resolved.runDir ? runPaths(resolved.runDir) : undefined;
   const result = await new VerificationRunner(contract, loop, shell).run({ cwd, paths });
   const turnDiff = paths ? await writeTurnDiffArtifact({ paths, cwd, entry: result.turn.entry }) : undefined;

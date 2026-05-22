@@ -8,6 +8,7 @@ import { ShellAdapter } from "../adapters/ShellAdapter.js";
 import { BugFinderFixerAgent } from "../agents/BugFinderFixerAgent.js";
 import { documentationConsistencyDaemon } from "../agents/DaemonAgent.js";
 import { DaemonScheduler, type DaemonDispatchResult } from "../agents/DaemonScheduler.js";
+import { DaemonService } from "../agents/DaemonService.js";
 import { DataModelOptimizationAgent } from "../agents/DataModelOptimizationAgent.js";
 import { DocumentationDaemonRunner } from "../agents/DocumentationDaemonRunner.js";
 import { CodexPlannerAgent } from "../agents/PlannerAgent.js";
@@ -119,6 +120,7 @@ function printUsage(): void {
   harness codex-run --contract <file> [--ledger <ledger.jsonl>] [--cwd <dir>] [--model <model>] [--codex-bin <path>]
   harness daemon documentation --contract <file> --changed <path> [--changed <path>...] [--ledger <ledger.jsonl>]
   harness daemon dispatch --run <dir> --trigger <on_goal_finished|on_file_change|scheduled> [--cwd <dir>] [--changed <path>...] [--scheduled-at <iso>]
+  harness daemon serve --run <dir> [--cwd <dir>] [--interval-ms <n>] [--no-watch]
   harness ledger inspect <ledger.jsonl>`);
 }
 
@@ -458,6 +460,35 @@ async function dispatchDaemons(args: string[]): Promise<void> {
   }
 }
 
+async function serveDaemons(args: string[]): Promise<void> {
+  const paths = runPaths(requireFlag(args, "--run"));
+  const cwd = flagValue(args, "--cwd") ?? process.cwd();
+  const contract = await loadGoalContract(paths.contractPath);
+  const intervalMs = numberFlag(args, "--interval-ms") ?? 60_000;
+  const service = new DaemonService({
+    dispatcher: new DaemonScheduler({ contract, cwd, paths }),
+    cwd,
+    scheduledIntervalMs: intervalMs,
+    watchFileChanges: !hasFlag(args, "--no-watch")
+  });
+
+  await service.start();
+  console.log(JSON.stringify({ cwd, runDir: paths.runDir, intervalMs, ...service.status() }, null, 2));
+
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      process.off("SIGINT", stop);
+      process.off("SIGTERM", stop);
+      resolve();
+    };
+
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  });
+
+  console.log(JSON.stringify(await service.stop(), null, 2));
+}
+
 async function startRun(args: string[]): Promise<void> {
   const result = await startHarnessRun({
     contractPath: requireFlag(args, "--contract"),
@@ -729,6 +760,11 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "daemon" && subcommand === "dispatch") {
     await dispatchDaemons(rest);
+    return;
+  }
+
+  if (command === "daemon" && subcommand === "serve") {
+    await serveDaemons(rest);
     return;
   }
 

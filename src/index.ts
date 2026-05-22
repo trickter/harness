@@ -7,6 +7,7 @@ export * from "./agents/Agent.js";
 export * from "./agents/AutonomousTypes.js";
 export * from "./agents/DaemonAgent.js";
 export * from "./agents/DaemonScheduler.js";
+export * from "./agents/DaemonService.js";
 export * from "./agents/DocumentationDaemonRunner.js";
 export * from "./agents/PlannerAgent.js";
 export * from "./agents/SupervisorAgent.js";

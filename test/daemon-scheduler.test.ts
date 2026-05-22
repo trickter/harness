@@ -121,6 +121,57 @@ test("scheduled daemon dispatch isolates report, suggestion, and auto patch outp
   assert.deepEqual(byName.get("auto-daemon")?.isolation.changedArtifacts, [{ path: "src/generated.ts", status: "??" }]);
 });
 
+test("daemon scheduler enforces action and runtime budgets", async () => {
+  const cwd = await createGitWorkspace();
+  const paths = runPaths(join(cwd, ".harness", "runs", "daemon-budgets"));
+  const actionBudgeted: DaemonRegistration = {
+    spec: {
+      ...daemonSpec({ name: "action-budget-daemon", outputMode: "report_only", trigger: ["scheduled"] }),
+      maxActionsPerRun: 1
+    },
+    async run(_event, context) {
+      const turn = {
+        phase: "VERIFY" as const,
+        action: "Record a daemon action.",
+        changedArtifacts: [],
+        commandsRun: [],
+        verificationResult: "pass" as const,
+        newInformation: ["budget action"],
+        successCriteriaMet: true
+      };
+
+      await context.loop.recordTurn(turn);
+      await context.loop.recordTurn(turn);
+
+      return { report: { status: "too-many-actions" } };
+    }
+  };
+  const runtimeBudgeted: DaemonRegistration = {
+    spec: {
+      ...daemonSpec({ name: "runtime-budget-daemon", outputMode: "report_only", trigger: ["scheduled"] }),
+      maxRuntimeMinutes: 0.0001
+    },
+    async run() {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      return { report: { status: "late" } };
+    }
+  };
+
+  await assert.rejects(
+    new DaemonScheduler({ contract: contract(), cwd, paths, registrations: [actionBudgeted] }).dispatch({
+      trigger: "scheduled"
+    }),
+    /maxActionsPerRun/
+  );
+  await assert.rejects(
+    new DaemonScheduler({ contract: contract(), cwd, paths, registrations: [runtimeBudgeted] }).dispatch({
+      trigger: "scheduled"
+    }),
+    /maxRuntimeMinutes/
+  );
+});
+
 test("daemon dispatch CLI emits report paths for run-directory daemons", async () => {
   const cwd = await createGitWorkspace();
   const contractPath = join(cwd, "goal.yaml");

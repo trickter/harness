@@ -5,7 +5,7 @@ import type { GoalContract } from "../core/GoalContract.js";
 import { LoopController } from "../core/LoopController.js";
 import type { HarnessRunPaths } from "../core/RunDirectory.js";
 import { ensureRunDirectories } from "../core/RunDirectory.js";
-import { JsonlRunLedger } from "../core/RunLedger.js";
+import { JsonlRunLedger, type RunLedgerEntry, type RunLedgerStore } from "../core/RunLedger.js";
 import {
   auditChangedArtifacts,
   captureGitArtifactSnapshots,
@@ -36,8 +36,9 @@ export interface DaemonExecutionContext {
   cwd: string;
   parentPaths: HarnessRunPaths;
   daemonPaths: DaemonRunPaths;
-  ledger: JsonlRunLedger;
+  ledger: RunLedgerStore;
   loop: LoopController;
+  signal: AbortSignal;
 }
 
 export interface DaemonExecutionResult<TReport = unknown> {
@@ -89,6 +90,13 @@ export interface DaemonDispatchResult {
   triggeredAt: string;
   runs: DaemonRunRecord[];
   skipped: DaemonDispatchSkip[];
+}
+
+export class DaemonBudgetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DaemonBudgetError";
+  }
 }
 
 function daemonRunId(now: Date): string {
@@ -158,6 +166,69 @@ function relevantChangedArtifacts(event: DaemonTriggerEvent, spec: DaemonSpec): 
   return (event.changedArtifacts ?? []).filter((path) => inDaemonScope(path, spec));
 }
 
+class BudgetedDaemonLedger implements RunLedgerStore {
+  readonly ledger: JsonlRunLedger;
+  readonly spec: DaemonSpec;
+  readonly deadline: number;
+  private actions = 0;
+
+  constructor(ledger: JsonlRunLedger, spec: DaemonSpec, startedAt = Date.now()) {
+    this.ledger = ledger;
+    this.spec = spec;
+    this.deadline = startedAt + spec.maxRuntimeMinutes * 60_000;
+  }
+
+  async append(entry: RunLedgerEntry): Promise<void> {
+    this.assertRuntime();
+
+    if (this.actions >= this.spec.maxActionsPerRun) {
+      throw new DaemonBudgetError(`${this.spec.name} exceeded maxActionsPerRun ${this.spec.maxActionsPerRun}`);
+    }
+
+    await this.ledger.append(entry);
+    this.actions += 1;
+  }
+
+  async readAll(): Promise<RunLedgerEntry[]> {
+    this.assertRuntime();
+
+    return this.ledger.readAll();
+  }
+
+  async window(size: number): Promise<RunLedgerEntry[]> {
+    this.assertRuntime();
+
+    return this.ledger.window(size);
+  }
+
+  private assertRuntime(): void {
+    if (Date.now() > this.deadline) {
+      throw new DaemonBudgetError(`${this.spec.name} exceeded maxRuntimeMinutes ${this.spec.maxRuntimeMinutes}`);
+    }
+  }
+}
+
+async function withinRuntimeBudget<T>(spec: DaemonSpec, signal: AbortController, run: () => Promise<T>): Promise<T> {
+  const timeoutMs = Math.max(1, spec.maxRuntimeMinutes * 60_000);
+  let timer: NodeJS.Timeout | undefined;
+
+  try {
+    return await Promise.race([
+      run(),
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          signal.abort();
+          reject(new DaemonBudgetError(`${spec.name} exceeded maxRuntimeMinutes ${spec.maxRuntimeMinutes}`));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 export class DaemonScheduler {
   readonly contract: GoalContract;
   readonly cwd: string;
@@ -218,20 +289,25 @@ export class DaemonScheduler {
     triggeredAt: string
   ): Promise<DaemonRunRecord> {
     const paths = daemonPaths(this.paths, registration.spec, daemonRunId(this.now()));
-    const ledger = new JsonlRunLedger(paths.ledgerPath);
+    const rawLedger = new JsonlRunLedger(paths.ledgerPath);
+    const ledger = new BudgetedDaemonLedger(rawLedger, registration.spec);
     const loop = new LoopController(this.contract, ledger);
+    const signal = new AbortController();
 
     await Promise.all([mkdir(paths.runDir, { recursive: true }), mkdir(dirname(paths.reportPath), { recursive: true })]);
 
     const before = await captureGitArtifactSnapshots(this.cwd);
-    const result = await registration.run(event, {
-      contract: this.contract,
-      cwd: this.cwd,
-      parentPaths: this.paths,
-      daemonPaths: paths,
-      ledger,
-      loop
-    });
+    const result = await withinRuntimeBudget(registration.spec, signal, () =>
+      registration.run(event, {
+        contract: this.contract,
+        cwd: this.cwd,
+        parentPaths: this.paths,
+        daemonPaths: paths,
+        ledger,
+        loop,
+        signal: signal.signal
+      })
+    );
     const after = await captureGitArtifactSnapshots(this.cwd);
     const isolation = isolationReport({
       spec: registration.spec,
@@ -248,7 +324,7 @@ export class DaemonScheduler {
       event,
       outputMode: registration.spec.outputMode,
       paths,
-      ledgerEntries: (await ledger.readAll()).length,
+      ledgerEntries: (await rawLedger.readAll()).length,
       report: result.report,
       isolation
     };

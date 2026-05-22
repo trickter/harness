@@ -163,6 +163,17 @@ function gitOperation(command: string, args: string[]): "git:commit" | "git:push
   return undefined;
 }
 
+function usesInlineInterpreter(command: string, args: string[]): boolean {
+  const name = executableName(command);
+  const inlineFlags = new Set(["-c", "-e", "-p", "--eval", "--print", "--command"]);
+
+  if (["node", "python", "python3"].includes(name)) {
+    return args.some((arg) => inlineFlags.has(arg));
+  }
+
+  return false;
+}
+
 function parseCommandLine(commandLine: string): { command: string; args: string[] } {
   if (SHELL_CONTROL_PATTERN.test(commandLine)) {
     throw new ShellSecurityError("shell command line contains control operators or redirection");
@@ -304,6 +315,10 @@ export class ShellAdapter {
 
     if (name === "git" && ["clean", "reset"].includes(args[0]?.toLowerCase() ?? "")) {
       throw new ShellSecurityError(`git ${args[0]} is denied as dangerous`);
+    }
+
+    if (usesInlineInterpreter(command, args)) {
+      throw new ShellSecurityError(`shell command ${name} cannot execute inline interpreter code`);
     }
 
     if (this.workspaceRoot) {

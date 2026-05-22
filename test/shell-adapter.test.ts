@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -22,13 +22,19 @@ const shellContract = parseGoalContract({
 });
 
 test("shell adapter returns output and exit code for failed verification commands", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "harness-shell-output-"));
+  const script = join(workspace, "verify.cjs");
   const shell = new ShellAdapter(new PermissionPolicy(shellContract));
+
+  await writeFile(
+    script,
+    "process.stdout.write('verify-out'); process.stderr.write('verify-err'); process.exit(3);",
+    "utf8"
+  );
+
   const result = await shell.run({
     command: process.execPath,
-    args: [
-      "-e",
-      "process.stdout.write('verify-out'); process.stderr.write('verify-err'); process.exit(3);"
-    ],
+    args: [script],
     operation: "shell:verify"
   });
 
@@ -105,9 +111,13 @@ test("shell adapter keeps cwd inside the workspace and strips secret environment
   process.env.HARNESS_TEST_SECRET = "do-not-leak";
 
   try {
+    const envScript = join(workspace, "env-check.cjs");
+
+    await writeFile(envScript, "process.stdout.write(process.env.HARNESS_TEST_SECRET ?? 'missing')", "utf8");
+
     const result = await shell.run({
       command: process.execPath,
-      args: ["-e", "process.stdout.write(process.env.HARNESS_TEST_SECRET ?? 'missing')"],
+      args: [envScript],
       cwd: workspace,
       operation: "shell:verify"
     });
@@ -116,7 +126,7 @@ test("shell adapter keeps cwd inside the workspace and strips secret environment
     await assert.rejects(
       shell.run({
         command: process.execPath,
-        args: ["-e", "process.exit(0)"],
+        args: [envScript],
         cwd: outside,
         operation: "shell:verify"
       }),
@@ -129,6 +139,19 @@ test("shell adapter keeps cwd inside the workspace and strips secret environment
       process.env.HARNESS_TEST_SECRET = priorSecret;
     }
   }
+});
+
+test("shell adapter denies inline interpreter execution", async () => {
+  const shell = new ShellAdapter(new PermissionPolicy(shellContract));
+
+  await assert.rejects(
+    shell.run({
+      command: process.execPath,
+      args: ["-e", "process.exit(0)"],
+      operation: "shell:verify"
+    }),
+    /inline interpreter/
+  );
 });
 
 test("shell adapter enforces allowlisted network hosts", async () => {

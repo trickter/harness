@@ -280,7 +280,7 @@ async function recordTurn(args: string[]): Promise<void> {
     humanDenied: hasFlag(args, "--human-denied")
   });
   const paths = resolved.runDir ? runPaths(resolved.runDir) : undefined;
-  const turnDiff = paths ? await writeTurnDiffArtifact({ paths, cwd, entry: result.entry }) : undefined;
+  const turnDiff = paths ? await writeTurnDiffArtifact({ paths, cwd, entry: result.entry, contract }) : undefined;
   const status = paths ? await writeRunStatus(paths) : undefined;
   const statusPath = paths?.statusPath;
   const daemonDispatch =
@@ -329,7 +329,7 @@ async function verifyContract(args: string[]): Promise<void> {
   const shell = new ShellAdapter(permissions, { workspaceRoot: cwd });
   const paths = resolved.runDir ? runPaths(resolved.runDir) : undefined;
   const result = await new VerificationRunner(contract, loop, shell).run({ cwd, paths });
-  const turnDiff = paths ? await writeTurnDiffArtifact({ paths, cwd, entry: result.turn.entry }) : undefined;
+  const turnDiff = paths ? await writeTurnDiffArtifact({ paths, cwd, entry: result.turn.entry, contract }) : undefined;
   const status = paths ? await writeRunStatus(paths) : undefined;
   const statusPath = paths?.statusPath;
   const healthySnapshot =
@@ -338,6 +338,7 @@ async function verifyContract(args: string[]): Promise<void> {
           paths,
           cwd,
           name: "healthy",
+          contract,
           ledgerIteration: result.turn.entry.iteration,
           verificationResult: result.verificationResult
         })
@@ -508,7 +509,8 @@ async function startRun(args: string[]): Promise<void> {
   const baseline = await captureHarnessSnapshot({
     paths: result.paths,
     cwd,
-    name: "baseline"
+    name: "baseline",
+    contract: result.contract
   });
 
   console.log(
@@ -553,7 +555,8 @@ async function snapshotRun(args: string[]): Promise<void> {
   const snapshot = await captureHarnessSnapshot({
     paths,
     cwd: flagValue(args, "--cwd") ?? process.cwd(),
-    name: requireFlag(args, "--name")
+    name: requireFlag(args, "--name"),
+    contract: await loadGoalContract(paths.contractPath)
   });
 
   console.log(

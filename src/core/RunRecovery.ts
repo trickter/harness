@@ -88,6 +88,10 @@ function gitShowHead(path: string, cwd: string): Promise<Buffer | undefined> {
 async function writeWorkspaceState(cwd: string, path: string, state: SnapshotWorkspaceArtifact): Promise<void> {
   const absolutePath = safeWorkspacePath(cwd, path);
 
+  if (state.redacted) {
+    throw new Error(`snapshot payload for ${path} is redacted and cannot be restored automatically`);
+  }
+
   if (!state.exists) {
     await rm(absolutePath, { force: true, recursive: true });
     return;
@@ -177,7 +181,8 @@ export async function recoverHarnessRun(input: {
   const latest = await captureHarnessSnapshot({
     paths: input.paths,
     cwd: input.cwd,
-    name: "latest"
+    name: "latest",
+    contract: input.contract
   });
   const keptArtifacts = diffSnapshots(baseline.artifacts, target.artifacts);
   const latestArtifacts = diffSnapshots(baseline.artifacts, latest.artifacts);

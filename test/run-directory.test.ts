@@ -135,3 +135,66 @@ test("run directory start, status, resume, turn, and verify use canonical paths"
 
   assert.match(await readFile(join(runDir, "status.json"), "utf8"), /FINISH/);
 });
+
+test("run snapshots and turn diffs redact forbidden artifact contents", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "harness-run-redact-"));
+  const contractPath = join(directory, "goal.yaml");
+  const runDir = join(directory, ".harness", "runs", "redact");
+
+  await execFileAsync("git", ["init"], { cwd: directory });
+  await writeFile(join(directory, ".env"), "TOKEN=secret\n", "utf8");
+  await writeFile(
+    contractPath,
+    `goal:
+  id: redact
+  name: Redact
+  objective: Redact forbidden artifacts.
+scope:
+  allowedArtifacts:
+    - "**"
+  allowedOperations:
+    - fs:read
+verification:
+  commands: []
+`,
+    "utf8"
+  );
+
+  await execFileAsync(process.execPath, [cli(), "start", "--contract", contractPath, "--run", runDir, "--cwd", directory]);
+
+  const baseline = JSON.parse(await readFile(join(runDir, "snapshots", "baseline.json"), "utf8")) as {
+    workspaceArtifacts: Array<{ path: string; redacted?: boolean; contentBase64?: string }>;
+  };
+  const envSnapshot = baseline.workspaceArtifacts.find((artifact) => artifact.path === ".env");
+
+  assert.equal(envSnapshot?.redacted, true);
+  assert.equal(envSnapshot?.contentBase64, undefined);
+
+  const turn = JSON.parse(
+    (
+      await execFileAsync(process.execPath, [
+        cli(),
+        "turn",
+        "--run",
+        runDir,
+        "--cwd",
+        directory,
+        "--phase",
+        "DIVERGE_PLAN",
+        "--action",
+        "Plan redaction.",
+        "--verification",
+        "skipped",
+        "--selected-strategy-ready"
+      ])
+    ).stdout
+  ) as { turnDiff: string };
+  const diff = JSON.parse(await readFile(turn.turnDiff, "utf8")) as {
+    redactedArtifacts: string[];
+    workingTreeDiff: { error?: string; output?: string };
+  };
+
+  assert.deepEqual(diff.redactedArtifacts, [".env"]);
+  assert.match(diff.workingTreeDiff.error ?? "", /redacted/);
+  assert.equal(diff.workingTreeDiff.output, undefined);
+});

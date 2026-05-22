@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DEFAULT_SCOPE, type GoalContract } from "./GoalContract.js";
 import type { HarnessRunPaths } from "./RunDirectory.js";
 import type { RunLedgerEntry, VerificationResult } from "./RunLedger.js";
-import { runGit, scanGitChangedArtifacts, type GitChangedArtifact } from "./ScopeAudit.js";
+import { matchesArtifactPattern, runGit, scanGitChangedArtifacts, type GitChangedArtifact } from "./ScopeAudit.js";
 
 interface GitCapture {
   args: string[];
@@ -35,6 +36,7 @@ export interface TurnDiffArtifact {
   path: string;
   iteration: number;
   workspaceArtifacts: GitChangedArtifact[];
+  redactedArtifacts: string[];
 }
 
 function turnId(iteration: number): string {
@@ -59,14 +61,25 @@ export async function writeTurnDiffArtifact(input: {
   paths: HarnessRunPaths;
   cwd: string;
   entry: RunLedgerEntry;
+  contract?: GoalContract;
 }): Promise<TurnDiffArtifact> {
   const directory = join(input.paths.reportsDir, "diffs");
   const path = join(directory, `${turnId(input.entry.iteration)}.json`);
-  const [workspaceArtifacts, workingTreeDiff, stagedDiff] = await Promise.all([
-    scanGitChangedArtifacts(input.cwd),
-    captureGit(["diff", "--binary"], input.cwd),
-    captureGit(["diff", "--cached", "--binary"], input.cwd)
-  ]);
+  const redactedPatterns = [...DEFAULT_SCOPE.forbiddenArtifacts, ...(input.contract?.scope.forbiddenArtifacts ?? [])];
+  const workspaceArtifacts = await scanGitChangedArtifacts(input.cwd);
+  const redactedArtifacts = workspaceArtifacts
+    .map((artifact) => artifact.path)
+    .filter((artifactPath) => redactedPatterns.some((pattern) => matchesArtifactPattern(artifactPath, pattern)));
+  const [workingTreeDiff, stagedDiff] =
+    redactedArtifacts.length > 0
+      ? [
+          { args: ["diff", "--binary"], error: `redacted because sensitive artifacts changed: ${redactedArtifacts.join(", ")}` },
+          {
+            args: ["diff", "--cached", "--binary"],
+            error: `redacted because sensitive artifacts changed: ${redactedArtifacts.join(", ")}`
+          }
+        ]
+      : await Promise.all([captureGit(["diff", "--binary"], input.cwd), captureGit(["diff", "--cached", "--binary"], input.cwd)]);
 
   await mkdir(directory, { recursive: true });
   await writeFile(
@@ -80,6 +93,7 @@ export async function writeTurnDiffArtifact(input: {
         timestamp: input.entry.timestamp,
         declaredChangedArtifacts: input.entry.changedArtifacts,
         workspaceArtifacts,
+        redactedArtifacts,
         workingTreeDiff,
         stagedDiff
       },
@@ -92,7 +106,8 @@ export async function writeTurnDiffArtifact(input: {
   return {
     path,
     iteration: input.entry.iteration,
-    workspaceArtifacts
+    workspaceArtifacts,
+    redactedArtifacts
   };
 }
 

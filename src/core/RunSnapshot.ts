@@ -1,8 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DEFAULT_SCOPE, type GoalContract } from "./GoalContract.js";
 import {
   captureGitArtifactSnapshots,
   changedSinceBaseline,
+  matchesArtifactPattern,
   type GitArtifactSnapshot,
   type GitChangedArtifact
 } from "./ScopeAudit.js";
@@ -21,6 +23,7 @@ export interface HarnessSnapshot {
 export interface SnapshotWorkspaceArtifact {
   path: string;
   exists: boolean;
+  redacted?: boolean;
   contentBase64?: string;
 }
 
@@ -32,10 +35,12 @@ export async function captureHarnessSnapshot(input: {
   paths: HarnessRunPaths;
   cwd: string;
   name: string;
+  contract?: GoalContract;
   ledgerIteration?: number;
   verificationResult?: "pass" | "fail" | "partial" | "skipped";
 }): Promise<HarnessSnapshot> {
   const artifacts = await captureGitArtifactSnapshots(input.cwd);
+  const redactedPatterns = [...DEFAULT_SCOPE.forbiddenArtifacts, ...(input.contract?.scope.forbiddenArtifacts ?? [])];
   const snapshot: HarnessSnapshot = {
     name: input.name,
     cwd: input.cwd,
@@ -43,6 +48,14 @@ export async function captureHarnessSnapshot(input: {
     artifacts,
     workspaceArtifacts: await Promise.all(
       artifacts.map(async (artifact) => {
+        if (redactedPatterns.some((pattern) => matchesArtifactPattern(artifact.path, pattern))) {
+          return {
+            path: artifact.path,
+            exists: true,
+            redacted: true
+          };
+        }
+
         try {
           return {
             path: artifact.path,

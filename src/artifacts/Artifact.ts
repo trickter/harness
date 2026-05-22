@@ -8,6 +8,7 @@ export const ARTIFACT_TYPES = [
   "notebook",
   "model",
   "experiment",
+  "schema",
   "issue",
   "pr",
   "email",

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { documentationConsistencyDaemon } from "../src/agents/DaemonAgent.js";
 import { DocumentationDaemonRunner } from "../src/agents/DocumentationDaemonRunner.js";
+import { ArtifactGraph } from "../src/artifacts/ArtifactGraph.js";
 import { parseGoalContract } from "../src/core/GoalContract.js";
 import { LoopController } from "../src/core/LoopController.js";
 import { JsonlRunLedger } from "../src/core/RunLedger.js";
@@ -69,4 +70,21 @@ test("documentation daemon flags stale API and architecture documentation target
 
   assert.equal(result.report.needsDocumentationReview, true);
   assert.deepEqual(result.report.staleDocumentationTargets, ["readme-api", "architecture"]);
+});
+
+test("documentation daemon flags changed docs that do not document changed source", async () => {
+  const { runner } = await createDaemonRunner();
+  const result = await runner.run({
+    changedArtifacts: ["src/webhooks/signature.ts", "docs/unrelated.md"],
+    graph: new ArtifactGraph({
+      artifacts: [
+        { id: "source", type: "source_code", uri: "src/webhooks/signature.ts", metadata: {} },
+        { id: "doc", type: "document", uri: "docs/unrelated.md", metadata: {} }
+      ]
+    })
+  });
+
+  assert.equal(result.report.needsDocumentationReview, true);
+  assert.deepEqual(result.report.undocumentedSourceArtifacts, ["src/webhooks/signature.ts"]);
+  assert.deepEqual(result.report.staleDocumentationTargets, ["source-references"]);
 });

@@ -1,3 +1,4 @@
+import type { ArtifactGraph } from "../artifacts/ArtifactGraph.js";
 import type { LoopController, LoopTurnResult } from "../core/LoopController.js";
 import type { DaemonSpec } from "./DaemonAgent.js";
 
@@ -6,6 +7,8 @@ export interface DocumentationDaemonReport {
   outputMode: "report_only";
   changedSourceArtifacts: string[];
   changedDocumentationArtifacts: string[];
+  documentedSourceArtifacts: string[];
+  undocumentedSourceArtifacts: string[];
   findings: string[];
   staleDocumentationTargets: string[];
   needsDocumentationReview: boolean;
@@ -51,12 +54,16 @@ function hasDocumentation(paths: string[], pattern: RegExp): boolean {
   return paths.some((path) => pattern.test(normalizePath(path).toLowerCase()));
 }
 
-function staleDocumentationTargets(source: string[], docs: string[]): string[] {
+function staleDocumentationTargets(source: string[], docs: string[], undocumentedSource: string[]): string[] {
   const targets = new Set<string>();
   const hasAnyDocs = docs.length > 0;
 
   if (!hasAnyDocs) {
     targets.add("general");
+  }
+
+  if (hasAnyDocs && undocumentedSource.length > 0) {
+    targets.add("source-references");
   }
 
   if (
@@ -76,6 +83,38 @@ function staleDocumentationTargets(source: string[], docs: string[]): string[] {
   return [...targets];
 }
 
+function documentationCoverage(source: string[], graph?: ArtifactGraph): {
+  documentedSourceArtifacts: string[];
+  undocumentedSourceArtifacts: string[];
+} {
+  if (!graph) {
+    return {
+      documentedSourceArtifacts: [],
+      undocumentedSourceArtifacts: []
+    };
+  }
+
+  const sourceArtifacts = graph
+    .listArtifacts()
+    .filter((artifact) => source.includes(artifact.uri) && artifact.type === "source_code");
+  const documentedSourceIds = new Set(
+    graph
+      .listEdges()
+      .filter((edge) => edge.relation === "documents")
+      .filter((edge) => graph.getArtifact(edge.from)?.type === "document")
+      .map((edge) => edge.to)
+  );
+
+  return {
+    documentedSourceArtifacts: sourceArtifacts
+      .filter((artifact) => documentedSourceIds.has(artifact.id))
+      .map((artifact) => artifact.uri),
+    undocumentedSourceArtifacts: sourceArtifacts
+      .filter((artifact) => !documentedSourceIds.has(artifact.id))
+      .map((artifact) => artifact.uri)
+  };
+}
+
 export class DocumentationDaemonRunner {
   readonly spec: DaemonSpec;
   readonly loop: LoopController;
@@ -85,14 +124,19 @@ export class DocumentationDaemonRunner {
     this.loop = loop;
   }
 
-  async run(input: { changedArtifacts: string[] }): Promise<DocumentationDaemonRunResult> {
+  async run(input: { changedArtifacts: string[]; graph?: ArtifactGraph }): Promise<DocumentationDaemonRunResult> {
     if (this.spec.outputMode !== "report_only") {
       throw new Error("documentation daemon runner only supports report_only output mode");
     }
 
     const changedSourceArtifacts = input.changedArtifacts.filter(isSourceArtifact);
     const changedDocumentationArtifacts = input.changedArtifacts.filter(isDocumentationArtifact);
-    const staleTargets = staleDocumentationTargets(changedSourceArtifacts, changedDocumentationArtifacts);
+    const coverage = documentationCoverage(changedSourceArtifacts, input.graph);
+    const staleTargets = staleDocumentationTargets(
+      changedSourceArtifacts,
+      changedDocumentationArtifacts,
+      coverage.undocumentedSourceArtifacts
+    );
     const needsDocumentationReview = changedSourceArtifacts.length > 0 && staleTargets.length > 0;
     const findings = needsDocumentationReview
       ? [
@@ -105,6 +149,7 @@ export class DocumentationDaemonRunner {
       outputMode: "report_only",
       changedSourceArtifacts,
       changedDocumentationArtifacts,
+      ...coverage,
       findings,
       staleDocumentationTargets: staleTargets,
       needsDocumentationReview

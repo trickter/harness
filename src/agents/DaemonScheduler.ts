@@ -340,8 +340,10 @@ export function documentationDaemonRegistration(): DaemonRegistration {
   return {
     spec: documentationConsistencyDaemon,
     async run(event, context) {
+      const changedArtifacts = event.changedArtifacts ?? [];
       const result = await new DocumentationDaemonRunner(documentationConsistencyDaemon, context.loop).run({
-        changedArtifacts: event.changedArtifacts ?? []
+        changedArtifacts,
+        graph: await new ArtifactScanner().fromWorkspace(context.cwd, changedArtifacts)
       });
 
       return { report: result.report };

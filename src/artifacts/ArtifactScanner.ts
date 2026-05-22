@@ -6,6 +6,7 @@ import { ArtifactGraph } from "./ArtifactGraph.js";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs"];
 const IMPORT_RESOLUTION_EXTENSIONS = [...SOURCE_EXTENSIONS, ".json", ".yaml", ".yml", ".toml"];
 const CONFLICT_COPY_SUFFIXES = [".orig", ".rej", ".bak", "~"];
+const MAX_CONFIG_PATH_PATTERN_LENGTH = 512;
 
 function normalizeUri(uri: string): string {
   return uri.replaceAll("\\", "/").replace(/^\.\//u, "");
@@ -149,6 +150,11 @@ function escapeRegex(value: string): string {
 
 function matchesPathPattern(uri: string, pattern: string): boolean {
   const normalizedPattern = normalizeUri(pattern).replace(/^\//u, "");
+
+  if (normalizedPattern.length > MAX_CONFIG_PATH_PATTERN_LENGTH) {
+    return false;
+  }
+
   const regex = escapeRegex(normalizedPattern)
     .replaceAll("**/", "\0")
     .replaceAll("**", "\u0001")
@@ -486,7 +492,10 @@ function configPatternTargets(content: string, artifacts: Artifact[]): Artifact[
   const targets = patterns.flatMap((pattern) => {
     const normalized = normalizeUri(pattern);
 
-    if (!normalized.includes("/") && !normalized.includes("*")) {
+    if (
+      normalized.length > MAX_CONFIG_PATH_PATTERN_LENGTH ||
+      (!normalized.includes("/") && !normalized.includes("*"))
+    ) {
       return [];
     }
 

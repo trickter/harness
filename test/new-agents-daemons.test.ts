@@ -9,6 +9,7 @@ import { BugFinderFixerAgent } from "../src/agents/BugFinderFixerAgent.js";
 import { DataModelOptimizationAgent } from "../src/agents/DataModelOptimizationAgent.js";
 import { architectureConsistencyDaemon, ArchitectureConsistencyDaemonRunner } from "../src/agents/ArchitectureConsistencyDaemon.js";
 import { testCoverageDaemon, TestCoverageDaemonRunner } from "../src/agents/TestCoverageDaemon.js";
+import { ArtifactGraph } from "../src/artifacts/ArtifactGraph.js";
 import { parseGoalContract } from "../src/core/GoalContract.js";
 import { LoopController } from "../src/core/LoopController.js";
 import { JsonlRunLedger } from "../src/core/RunLedger.js";
@@ -100,6 +101,19 @@ test("architecture daemon detects layer violations", async () => {
   const violationResult = await runner.run({ changedArtifacts: ["src/core/adapters-helper.ts"] });
   assert.equal(violationResult.report.hasViolations, true);
   assert.match(violationResult.report.findings[0] as string, /Potential layer violation/);
+
+  const dependencyResult = await runner.run({
+    changedArtifacts: ["src/core/policy.ts", "src/adapters/shell.ts"],
+    graph: new ArtifactGraph({
+      artifacts: [
+        { id: "core", type: "source_code", uri: "src/core/policy.ts", metadata: {} },
+        { id: "adapter", type: "source_code", uri: "src/adapters/shell.ts", metadata: {} }
+      ],
+      edges: [{ from: "core", to: "adapter", relation: "depends_on" }]
+    })
+  });
+  assert.equal(dependencyResult.report.hasViolations, true);
+  assert.match(dependencyResult.report.dependencyViolations[0] ?? "", /Dependency direction violation/);
 });
 
 test("test coverage daemon detects coverage gaps", async () => {
@@ -115,4 +129,16 @@ test("test coverage daemon detects coverage gaps", async () => {
   const cleanResult = await runner.run({ changedArtifacts: ["src/core/StateMachine.ts", "test/state-machine.test.ts"] });
   assert.equal(cleanResult.report.coverageGapDetected, false);
   assert.equal(cleanResult.report.findings[0], "No coverage gaps detected from the changed artifacts.");
+
+  const semanticGap = await runner.run({
+    changedArtifacts: ["src/core/StateMachine.ts", "test/unrelated.test.ts"],
+    graph: new ArtifactGraph({
+      artifacts: [
+        { id: "state", type: "source_code", uri: "src/core/StateMachine.ts", metadata: {} },
+        { id: "test", type: "test", uri: "test/unrelated.test.ts", metadata: {} }
+      ]
+    })
+  });
+  assert.equal(semanticGap.report.coverageGapDetected, true);
+  assert.deepEqual(semanticGap.report.unvalidatedSourceFiles, ["src/core/StateMachine.ts"]);
 });

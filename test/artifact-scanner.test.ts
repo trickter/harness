@@ -184,3 +184,31 @@ test("artifact scanner resolves project dependencies and non-code lineage", asyn
   assert.equal(type("emails/status.eml"), "email");
   assert.equal(type("tasks/release.md"), "task");
 });
+
+test("artifact scanner ignores oversized config strings that are not path patterns", async () => {
+  const root = await mkdtemp(join(tmpdir(), "harness-artifact-snapshot-"));
+  const paths = [".harness/runs/run/snapshots/healthy.json", "src/core/StateMachine.ts"];
+
+  await mkdir(join(root, ".harness", "runs", "run", "snapshots"), { recursive: true });
+  await mkdir(join(root, "src", "core"), { recursive: true });
+  await writeFile(
+    join(root, ".harness", "runs", "run", "snapshots", "healthy.json"),
+    JSON.stringify({
+      workspaceArtifacts: [
+        {
+          path: "src/core/StateMachine.ts",
+          contentBase64: "ZXhhbXBsZS8=".repeat(1024)
+        }
+      ]
+    }),
+    "utf8"
+  );
+  await writeFile(join(root, "src", "core", "StateMachine.ts"), "export const state = true;\n", "utf8");
+
+  const graph = await new ArtifactScanner().fromWorkspace(root, paths);
+
+  assert.equal(
+    edge(graph, ".harness/runs/run/snapshots/healthy.json", "src/core/StateMachine.ts", "configures"),
+    true
+  );
+});

@@ -42,6 +42,7 @@ test("documentation daemon reports source changes without docs as partial", asyn
 
   assert.equal(result.report.outputMode, "report_only");
   assert.equal(result.report.needsDocumentationReview, true);
+  assert.deepEqual(result.report.staleDocumentationTargets, ["general"]);
   assert.deepEqual(result.report.changedSourceArtifacts, ["src/webhooks/signature.ts"]);
   assert.equal(result.turn.transition.to, "REPAIR");
   assert.equal(entries[0]?.verificationResult, "partial");
@@ -58,4 +59,14 @@ test("documentation daemon passes when docs changed with source", async () => {
   assert.deepEqual(result.report.changedDocumentationArtifacts, ["docs/webhooks.md"]);
   assert.equal(result.turn.transition.to, "FINISH");
   assert.equal(entries[0]?.verificationResult, "pass");
+});
+
+test("documentation daemon flags stale API and architecture documentation targets", async () => {
+  const { runner } = await createDaemonRunner();
+  const result = await runner.run({
+    changedArtifacts: ["src/cli/index.ts", "src/core/StateMachine.ts", "docs/webhooks.md"]
+  });
+
+  assert.equal(result.report.needsDocumentationReview, true);
+  assert.deepEqual(result.report.staleDocumentationTargets, ["readme-api", "architecture"]);
 });

@@ -7,6 +7,7 @@ export interface DocumentationDaemonReport {
   changedSourceArtifacts: string[];
   changedDocumentationArtifacts: string[];
   findings: string[];
+  staleDocumentationTargets: string[];
   needsDocumentationReview: boolean;
 }
 
@@ -46,6 +47,35 @@ function isSourceArtifact(path: string): boolean {
   );
 }
 
+function hasDocumentation(paths: string[], pattern: RegExp): boolean {
+  return paths.some((path) => pattern.test(normalizePath(path).toLowerCase()));
+}
+
+function staleDocumentationTargets(source: string[], docs: string[]): string[] {
+  const targets = new Set<string>();
+  const hasAnyDocs = docs.length > 0;
+
+  if (!hasAnyDocs) {
+    targets.add("general");
+  }
+
+  if (
+    source.some((path) => /(?:^|\/)(?:cli|api)(?:\/|\.|-)/u.test(normalizePath(path).toLowerCase())) &&
+    !hasDocumentation(docs, /(?:^readme(?:\.|$)|^docs\/api(?:\/|\.|-))/u)
+  ) {
+    targets.add("readme-api");
+  }
+
+  if (
+    source.some((path) => /^(?:src|lib)\/(?:core|agents|adapters)(?:\/|$)/u.test(normalizePath(path).toLowerCase())) &&
+    !hasDocumentation(docs, /(?:^docs\/(?:architecture|design)(?:\/|\.|-)|architecture|\.drawio$|\.mmd$|\.mermaid$)/u)
+  ) {
+    targets.add("architecture");
+  }
+
+  return [...targets];
+}
+
 export class DocumentationDaemonRunner {
   readonly spec: DaemonSpec;
   readonly loop: LoopController;
@@ -62,11 +92,12 @@ export class DocumentationDaemonRunner {
 
     const changedSourceArtifacts = input.changedArtifacts.filter(isSourceArtifact);
     const changedDocumentationArtifacts = input.changedArtifacts.filter(isDocumentationArtifact);
-    const needsDocumentationReview = changedSourceArtifacts.length > 0 && changedDocumentationArtifacts.length === 0;
+    const staleTargets = staleDocumentationTargets(changedSourceArtifacts, changedDocumentationArtifacts);
+    const needsDocumentationReview = changedSourceArtifacts.length > 0 && staleTargets.length > 0;
     const findings = needsDocumentationReview
       ? [
-          `${changedSourceArtifacts.length} source artifact(s) changed without documentation artifacts.`,
-          "Review README, docs, API references, and architecture notes for staleness."
+          `${changedSourceArtifacts.length} source artifact(s) changed with stale documentation targets: ${staleTargets.join(", ")}.`,
+          "Review README, API references, architecture notes, and diagrams required by the changed source surface."
         ]
       : ["No documentation consistency gap detected from the provided changed artifacts."];
     const report: DocumentationDaemonReport = {
@@ -75,6 +106,7 @@ export class DocumentationDaemonRunner {
       changedSourceArtifacts,
       changedDocumentationArtifacts,
       findings,
+      staleDocumentationTargets: staleTargets,
       needsDocumentationReview
     };
     const turn = await this.loop.recordTurn({

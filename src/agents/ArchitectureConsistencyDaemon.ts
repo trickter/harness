@@ -1,3 +1,4 @@
+import type { ArtifactGraph } from "../artifacts/ArtifactGraph.js";
 import type { LoopController, LoopTurnResult } from "../core/LoopController.js";
 import { type DaemonSpec } from "./DaemonAgent.js";
 
@@ -5,6 +6,7 @@ export interface ArchitectureDaemonReport {
   daemon: string;
   outputMode: "report_only";
   changedArtifacts: string[];
+  dependencyViolations: string[];
   findings: string[];
   hasViolations: boolean;
 }
@@ -33,18 +35,28 @@ export class ArchitectureConsistencyDaemonRunner {
     this.loop = loop;
   }
 
-  async run(input: { changedArtifacts: string[] }): Promise<ArchitectureDaemonRunResult> {
-    const changedArtifacts = input.changedArtifacts.filter(path => 
+  async run(input: { changedArtifacts: string[]; graph?: ArtifactGraph }): Promise<ArchitectureDaemonRunResult> {
+    const changedArtifacts = input.changedArtifacts.filter(path =>
       path.startsWith("src/") || path.startsWith("lib/")
     );
-    
-    const findings: string[] = [];
-    let hasViolations = false;
+    const dependencyViolations =
+      input.graph?.listEdges().flatMap((edge) => {
+        if (edge.relation !== "depends_on") {
+          return [];
+        }
+
+        const from = input.graph?.getArtifact(edge.from);
+        const to = input.graph?.getArtifact(edge.to);
+
+        return from?.uri.match(/^(?:src|lib)\/core\//u) && to?.uri.match(/^(?:src|lib)\/adapters\//u)
+          ? [`Dependency direction violation: ${from.uri} depends on adapter ${to.uri}.`]
+          : [];
+      }) ?? [];
+    const findings: string[] = [...dependencyViolations];
 
     for (const file of changedArtifacts) {
       if (file.includes("core/") && file.includes("adapter")) {
         findings.push(`Potential layer violation: Core file ${file} should not depend directly on adapters.`);
-        hasViolations = true;
       }
     }
 
@@ -52,10 +64,14 @@ export class ArchitectureConsistencyDaemonRunner {
       findings.push("No architectural dependency or import violations detected.");
     }
 
+    const hasViolations = findings.some(
+      (finding) => finding !== "No architectural dependency or import violations detected."
+    );
     const report: ArchitectureDaemonReport = {
       daemon: this.spec.name,
       outputMode: "report_only",
       changedArtifacts,
+      dependencyViolations,
       findings,
       hasViolations
     };

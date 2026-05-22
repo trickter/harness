@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { ArtifactScanner } from "../artifacts/ArtifactScanner.js";
 import type { GoalContract } from "../core/GoalContract.js";
 import { LoopController } from "../core/LoopController.js";
 import type { HarnessRunPaths } from "../core/RunDirectory.js";
@@ -352,8 +353,10 @@ export function architectureDaemonRegistration(): DaemonRegistration {
   return {
     spec: architectureConsistencyDaemon,
     async run(event, context) {
+      const changedArtifacts = event.changedArtifacts ?? [];
       const result = await new ArchitectureConsistencyDaemonRunner(architectureConsistencyDaemon, context.loop).run({
-        changedArtifacts: event.changedArtifacts ?? []
+        changedArtifacts,
+        graph: await new ArtifactScanner().fromWorkspace(context.cwd, changedArtifacts)
       });
 
       return { report: result.report };
@@ -365,8 +368,10 @@ export function testCoverageDaemonRegistration(): DaemonRegistration {
   return {
     spec: testCoverageDaemon,
     async run(event, context) {
+      const changedArtifacts = event.changedArtifacts ?? [];
       const result = await new TestCoverageDaemonRunner(testCoverageDaemon, context.loop).run({
-        changedArtifacts: event.changedArtifacts ?? []
+        changedArtifacts,
+        graph: await new ArtifactScanner().fromWorkspace(context.cwd, changedArtifacts)
       });
 
       return { report: result.report };

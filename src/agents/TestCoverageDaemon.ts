@@ -1,3 +1,4 @@
+import type { ArtifactGraph } from "../artifacts/ArtifactGraph.js";
 import type { LoopController, LoopTurnResult } from "../core/LoopController.js";
 import { type DaemonSpec } from "./DaemonAgent.js";
 
@@ -6,6 +7,8 @@ export interface TestCoverageDaemonReport {
   outputMode: "report_only";
   changedSourceFiles: string[];
   changedTestFiles: string[];
+  validatedSourceFiles: string[];
+  unvalidatedSourceFiles: string[];
   findings: string[];
   coverageGapDetected: boolean;
 }
@@ -34,20 +37,39 @@ export class TestCoverageDaemonRunner {
     this.loop = loop;
   }
 
-  async run(input: { changedArtifacts: string[] }): Promise<TestCoverageDaemonRunResult> {
-    const changedSourceFiles = input.changedArtifacts.filter(path => 
+  async run(input: { changedArtifacts: string[]; graph?: ArtifactGraph }): Promise<TestCoverageDaemonRunResult> {
+    const changedSourceFiles = input.changedArtifacts.filter(path =>
       path.startsWith("src/") && !path.endsWith(".test.ts") && !path.endsWith(".spec.ts")
     );
-    const changedTestFiles = input.changedArtifacts.filter(path => 
+    const changedTestFiles = input.changedArtifacts.filter(path =>
       path.startsWith("test/") || path.endsWith(".test.ts") || path.endsWith(".spec.ts")
     );
+    const validatedSourceFiles =
+      input.graph?.listEdges().flatMap((edge) => {
+        if (!["tests", "validates"].includes(edge.relation)) {
+          return [];
+        }
 
-    const coverageGapDetected = changedSourceFiles.length > 0 && changedTestFiles.length === 0;
+        const source = input.graph?.getArtifact(edge.to);
+        const test = input.graph?.getArtifact(edge.from);
+
+        return source?.type === "source_code" && test?.type === "test" ? [source.uri] : [];
+      }) ?? [];
+    const unvalidatedSourceFiles = input.graph
+      ? changedSourceFiles.filter((path) => !validatedSourceFiles.includes(path))
+      : [];
+    const coverageGapDetected =
+      changedSourceFiles.length > 0 &&
+      (input.graph ? unvalidatedSourceFiles.length > 0 : changedTestFiles.length === 0);
     const findings: string[] = [];
 
     if (coverageGapDetected) {
-      findings.push(`${changedSourceFiles.length} source file(s) changed without test coverage updates.`);
-      findings.push("Please add tests under the test/ directory to cover these changes.");
+      findings.push(
+        input.graph
+          ? `${unvalidatedSourceFiles.length} changed source file(s) lack validating test relationships.`
+          : `${changedSourceFiles.length} source file(s) changed without test coverage updates.`
+      );
+      findings.push("Add or update tests that validate the changed source behavior.");
     } else {
       findings.push("No coverage gaps detected from the changed artifacts.");
     }
@@ -57,6 +79,8 @@ export class TestCoverageDaemonRunner {
       outputMode: "report_only",
       changedSourceFiles,
       changedTestFiles,
+      validatedSourceFiles: [...new Set(validatedSourceFiles)],
+      unvalidatedSourceFiles,
       findings,
       coverageGapDetected
     };

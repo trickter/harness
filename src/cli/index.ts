@@ -13,7 +13,7 @@ import { ContractSupervisorAgent } from "../agents/SupervisorAgent.js";
 import { ContractVerifierAgent } from "../agents/VerifierAgent.js";
 import { CodexWorkerAgent } from "../agents/WorkerAgent.js";
 import { AutonomousRun } from "../core/AutonomousRun.js";
-import { createGoalContractTemplate, loadGoalContract } from "../core/GoalContract.js";
+import { createGoalContractFromNaturalLanguage, createGoalContractTemplate, loadGoalContract } from "../core/GoalContract.js";
 import { LoopController } from "../core/LoopController.js";
 import { PermissionPolicy } from "../core/PermissionPolicy.js";
 import {
@@ -100,7 +100,7 @@ function requireEnum<T extends readonly string[]>(args: string[], flag: string, 
 
 function printUsage(): void {
   console.log(`Usage:
-  harness init-contract --name <name> --objective <objective> [--id <id>] [--out <file>]
+  harness init-contract --name <name> --objective <objective> [--id <id>] [--template] [--out <file>]
   harness start --contract <file> [--run <dir>] [--cwd <dir>]
   harness status --run <dir>
   harness resume --run <dir>
@@ -119,11 +119,14 @@ function printUsage(): void {
 }
 
 async function initContract(args: string[]): Promise<void> {
-  const contract = createGoalContractTemplate({
+  const input = {
     id: flagValue(args, "--id"),
     name: requireFlag(args, "--name"),
     objective: requireFlag(args, "--objective")
-  });
+  };
+  const contract = hasFlag(args, "--template")
+    ? createGoalContractTemplate(input)
+    : createGoalContractFromNaturalLanguage(input);
   const output = stringifyYaml(contract);
   const outputPath = flagValue(args, "--out");
 

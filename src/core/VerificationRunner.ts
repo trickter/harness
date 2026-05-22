@@ -19,16 +19,20 @@ export interface VerificationRunResult {
 function inferVerificationOperation(command: string): string {
   const normalized = command.trim().toLowerCase();
 
+  if (/\b(data-check|check-csv|quality|pandera|great expectations)\b/.test(normalized)) {
+    return "shell:data-check";
+  }
+
   if (/\b(test|jest|vitest|pytest|cargo test|go test)\b/.test(normalized)) {
     return "shell:test";
   }
 
-  if (/\b(tsc|typecheck|check)\b/.test(normalized)) {
-    return "shell:typecheck";
+  if (/\b(evaluate|evaluation|experiment|model-metrics|metric-gate)\b/.test(normalized)) {
+    return "shell:evaluate";
   }
 
-  if (/\b(data-check|check-csv|quality)\b/.test(normalized)) {
-    return "shell:data-check";
+  if (/\b(tsc|typecheck|check)\b/.test(normalized)) {
+    return "shell:typecheck";
   }
 
   return "shell:verify";

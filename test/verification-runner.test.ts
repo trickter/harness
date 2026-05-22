@@ -10,7 +10,7 @@ import { PermissionPolicy } from "../src/core/PermissionPolicy.js";
 import { JsonlRunLedger } from "../src/core/RunLedger.js";
 import { VerificationRunner } from "../src/core/VerificationRunner.js";
 
-async function createRunner(commands: string[]) {
+async function createRunner(commands: string[], allowedOperations = ["shell:verify"]) {
   const directory = await mkdtemp(join(tmpdir(), "harness-verify-"));
   const ledger = new JsonlRunLedger(join(directory, "ledger.jsonl"));
   const contract = parseGoalContract({
@@ -22,7 +22,7 @@ async function createRunner(commands: string[]) {
     scope: {
       allowedArtifacts: [],
       forbiddenArtifacts: [],
-      allowedOperations: ["shell:verify"],
+      allowedOperations,
       forbiddenOperations: []
     },
     verification: {
@@ -76,4 +76,22 @@ test("verification runner records a repair turn when a command fails", async () 
   assert.equal(entries[0]?.verificationResult, "fail");
   assert.equal(entries[0]?.nextPhase, "REPAIR");
   assert.match(entries[0]?.errorSignature ?? "", /exit-7/);
+});
+
+test("verification runner routes data quality commands to specialized parsing", async () => {
+  const { directory, runner } = await createRunner(
+    ["node check-csv.cjs"],
+    ["shell:data-check"]
+  );
+  await writeFile(
+    join(directory, "check-csv.cjs"),
+    "process.stdout.write('DATA QUALITY CHECK FAILED: duplicates=2\\nfailed_checks: 1\\n'); process.exit(1);",
+    "utf8"
+  );
+
+  const result = await runner.run({ cwd: directory });
+
+  assert.equal(result.commands[0]?.operation, "shell:data-check");
+  assert.equal(result.commands[0]?.parsed.failureCount, 1);
+  assert.match(result.commands[0]?.parsed.errorSignature ?? "", /data-quality/);
 });

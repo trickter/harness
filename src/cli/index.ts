@@ -5,10 +5,14 @@ import { join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import { CodexCliAdapter } from "../adapters/CodexCliAdapter.js";
 import { ShellAdapter } from "../adapters/ShellAdapter.js";
+import { BugFinderFixerAgent } from "../agents/BugFinderFixerAgent.js";
 import { documentationConsistencyDaemon } from "../agents/DaemonAgent.js";
 import { DaemonScheduler, type DaemonDispatchResult } from "../agents/DaemonScheduler.js";
+import { DataModelOptimizationAgent } from "../agents/DataModelOptimizationAgent.js";
 import { DocumentationDaemonRunner } from "../agents/DocumentationDaemonRunner.js";
 import { CodexPlannerAgent } from "../agents/PlannerAgent.js";
+import { RefactorAgent } from "../agents/RefactorAgent.js";
+import { ScenarioAgentOrchestrator } from "../agents/ScenarioAgentOrchestrator.js";
 import { ContractSupervisorAgent } from "../agents/SupervisorAgent.js";
 import { ContractVerifierAgent } from "../agents/VerifierAgent.js";
 import { CodexWorkerAgent } from "../agents/WorkerAgent.js";
@@ -197,12 +201,18 @@ async function runContract(args: string[]): Promise<void> {
     model: flagValue(args, "--model")
   });
   const verifier = new ContractVerifierAgent(new VerificationRunner(contract, loop, shell));
+  const worker = new ScenarioAgentOrchestrator({
+    defaultWorker: new CodexWorkerAgent(codex, cwd),
+    refactorWorker: new RefactorAgent(codex, cwd),
+    bugFinderFixerWorker: new BugFinderFixerAgent(codex, cwd),
+    dataModelOptimizationWorker: new DataModelOptimizationAgent(codex, cwd)
+  });
   const runner = new AutonomousRun(
     contract,
     loop,
     new CodexPlannerAgent(codex, cwd),
     new ContractSupervisorAgent(),
-    new CodexWorkerAgent(codex, cwd),
+    worker,
     verifier
   );
   const result = await runner.run({ cwd });

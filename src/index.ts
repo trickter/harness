@@ -15,6 +15,7 @@ export * from "./agents/WorkerAgent.js";
 export * from "./agents/RefactorAgent.js";
 export * from "./agents/BugFinderFixerAgent.js";
 export * from "./agents/DataModelOptimizationAgent.js";
+export * from "./agents/ScenarioAgentOrchestrator.js";
 export * from "./agents/ArchitectureConsistencyDaemon.js";
 export * from "./agents/TestCoverageDaemon.js";
 export * from "./artifacts/Artifact.js";

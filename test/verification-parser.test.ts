@@ -30,6 +30,19 @@ test("verification parser extracts test runner failure summaries", () => {
   assert.match(parsed.errorSignature ?? "", /test\/auth\.test\.ts/);
 });
 
+test("verification parser extracts Jest failure details", () => {
+  const parsed = parser.parse({
+    command: "npx jest --runInBand",
+    operation: "shell:test",
+    exitCode: 1,
+    stdout: "FAIL test/session.test.ts\n  ● sessions > rejects invalid cookie\n\nTests:       1 failed, 4 passed, 5 total\n",
+    stderr: ""
+  });
+
+  assert.equal(parsed.failureCount, 1);
+  assert.match(parsed.errorSignature ?? "", /jest-vitest:FAIL test\/session\.test\.ts/);
+});
+
 test("verification parser extracts Vitest failure details", () => {
   const parsed = parser.parse({
     command: "npx vitest run",

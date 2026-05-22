@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseGoalContract } from "../src/core/GoalContract.js";
-import { auditChangedArtifacts, parseGitStatusPorcelain } from "../src/core/ScopeAudit.js";
+import { auditChangedArtifacts, changedSinceBaseline, parseGitStatusPorcelain } from "../src/core/ScopeAudit.js";
 
 test("parseGitStatusPorcelain extracts changed paths and rename targets", () => {
   assert.deepEqual(parseGitStatusPorcelain(" M src/app.ts\n?? docs/new.md\nR  old.ts -> src/new.ts\n"), [
@@ -9,6 +9,16 @@ test("parseGitStatusPorcelain extracts changed paths and rename targets", () => 
     { path: "docs/new.md", status: "??" },
     { path: "src/new.ts", status: "R" }
   ]);
+});
+
+test("changedSinceBaseline reports artifacts removed from current status", () => {
+  assert.deepEqual(
+    changedSinceBaseline({
+      baseline: [{ path: "src/user-change.ts", status: "M", fingerprint: "baseline" }],
+      current: []
+    }),
+    [{ path: "src/user-change.ts", status: "baseline-removed" }]
+  );
 });
 
 test("auditChangedArtifacts flags forbidden and out-of-scope changes", () => {

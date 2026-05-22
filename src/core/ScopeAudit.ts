@@ -133,10 +133,16 @@ export function changedSinceBaseline(input: {
   baseline: GitArtifactSnapshot[];
 }): GitChangedArtifact[] {
   const baselineByPath = new Map(input.baseline.map((artifact) => [artifact.path, artifact]));
+  const currentByPath = new Map(input.current.map((artifact) => [artifact.path, artifact]));
+  const paths = new Set([...baselineByPath.keys(), ...currentByPath.keys()]);
 
-  return input.current
-    .filter((artifact) => baselineByPath.get(artifact.path)?.fingerprint !== artifact.fingerprint)
-    .map(({ path, status }) => ({ path, status }));
+  return [...paths]
+    .filter((path) => baselineByPath.get(path)?.fingerprint !== currentByPath.get(path)?.fingerprint)
+    .map((path) => ({
+      path,
+      status: currentByPath.get(path)?.status ?? "baseline-removed"
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path));
 }
 
 export function auditChangedArtifacts(input: {

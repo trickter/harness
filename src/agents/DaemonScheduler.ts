@@ -77,6 +77,8 @@ export interface DaemonRunRecord<TReport = unknown> {
   outputMode: DaemonOutputMode;
   paths: DaemonRunPaths;
   ledgerEntries: number;
+  status: "completed" | "aborted";
+  error?: string;
   report: TReport;
   isolation: DaemonIsolationReport;
 }
@@ -125,8 +127,9 @@ function isolationReport(input: {
   cwd: string;
   changedArtifacts: GitChangedArtifact[];
   patchSuggestions: DaemonPatchSuggestion[];
+  violations?: string[];
 }): DaemonIsolationReport {
-  const violations: string[] = [];
+  const violations: string[] = [...(input.violations ?? [])];
   const changedPaths = input.changedArtifacts.map((artifact) => artifact.path);
 
   if (input.spec.outputMode === "report_only" && input.patchSuggestions.length > 0) {
@@ -298,24 +301,34 @@ export class DaemonScheduler {
     await Promise.all([mkdir(paths.runDir, { recursive: true }), mkdir(dirname(paths.reportPath), { recursive: true })]);
 
     const before = await captureGitArtifactSnapshots(this.cwd);
-    const result = await withinRuntimeBudget(registration.spec, signal, () =>
-      registration.run(event, {
-        contract: this.contract,
-        cwd: this.cwd,
-        parentPaths: this.paths,
-        daemonPaths: paths,
-        ledger,
-        loop,
-        signal: signal.signal
-      })
-    );
+    let result: DaemonExecutionResult | undefined;
+    let errorMessage: string | undefined;
+
+    try {
+      result = await withinRuntimeBudget(registration.spec, signal, () =>
+        registration.run(event, {
+          contract: this.contract,
+          cwd: this.cwd,
+          parentPaths: this.paths,
+          daemonPaths: paths,
+          ledger,
+          loop,
+          signal: signal.signal
+        })
+      );
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+      signal.abort();
+    }
+
     const after = await captureGitArtifactSnapshots(this.cwd);
     const isolation = isolationReport({
       spec: registration.spec,
       contract: this.contract,
       cwd: this.cwd,
       changedArtifacts: changedSinceBaseline({ baseline: before, current: after }),
-      patchSuggestions: result.patchSuggestions ?? []
+      patchSuggestions: result?.patchSuggestions ?? [],
+      violations: errorMessage ? [`daemon aborted: ${errorMessage}`] : []
     });
     const record: DaemonRunRecord = {
       daemon: registration.spec.name,
@@ -326,7 +339,9 @@ export class DaemonScheduler {
       outputMode: registration.spec.outputMode,
       paths,
       ledgerEntries: (await rawLedger.readAll()).length,
-      report: result.report,
+      status: errorMessage ? "aborted" : "completed",
+      error: errorMessage,
+      report: result?.report ?? { error: errorMessage },
       isolation
     };
 

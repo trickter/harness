@@ -158,18 +158,21 @@ test("daemon scheduler enforces action and runtime budgets", async () => {
     }
   };
 
-  await assert.rejects(
-    new DaemonScheduler({ contract: contract(), cwd, paths, registrations: [actionBudgeted] }).dispatch({
-      trigger: "scheduled"
-    }),
-    /maxActionsPerRun/
-  );
-  await assert.rejects(
-    new DaemonScheduler({ contract: contract(), cwd, paths, registrations: [runtimeBudgeted] }).dispatch({
-      trigger: "scheduled"
-    }),
-    /maxRuntimeMinutes/
-  );
+  const actionDispatch = await new DaemonScheduler({ contract: contract(), cwd, paths, registrations: [actionBudgeted] }).dispatch({
+    trigger: "scheduled"
+  });
+  const runtimeDispatch = await new DaemonScheduler({ contract: contract(), cwd, paths, registrations: [runtimeBudgeted] }).dispatch({
+    trigger: "scheduled"
+  });
+
+  assert.equal(actionDispatch.runs[0]?.status, "aborted");
+  assert.match(actionDispatch.runs[0]?.error ?? "", /maxActionsPerRun/);
+  assert.equal(actionDispatch.runs[0]?.isolation.valid, false);
+  assert.match(await readFile(actionDispatch.runs[0]?.paths.reportPath ?? "", "utf8"), /maxActionsPerRun/);
+  assert.equal(runtimeDispatch.runs[0]?.status, "aborted");
+  assert.match(runtimeDispatch.runs[0]?.error ?? "", /maxRuntimeMinutes/);
+  assert.equal(runtimeDispatch.runs[0]?.isolation.valid, false);
+  assert.match(await readFile(runtimeDispatch.runs[0]?.paths.reportPath ?? "", "utf8"), /maxRuntimeMinutes/);
 });
 
 test("daemon dispatch CLI emits report paths for run-directory daemons", async () => {

@@ -6,6 +6,13 @@
   "bin": {
     "harness": "./dist/src/cli/index.js"
   },
+  "files": [
+    "dist/src",
+    "examples",
+    "skills",
+    "README.md",
+    "RELEASE.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "npm run build",
